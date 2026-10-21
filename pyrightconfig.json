@@ -1,0 +1,15 @@
+{
+  "pythonVersion": "3.13",
+  "venvPath": ".",
+  "venv": ".venv",
+  "include": ["libs", "services", "tools", "conftest.py"],
+  "exclude": ["**/.venv", "**/__pycache__", "**/fixtures"],
+  "typeCheckingMode": "standard",
+  "strict": [
+    "tools/*/src",
+    "libs/py/*/src",
+    "services/*/src/*/domain",
+    "services/*/src/*/application"
+  ],
+  "reportMissingTypeStubs": false
+}

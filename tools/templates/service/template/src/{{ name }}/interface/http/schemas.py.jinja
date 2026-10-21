@@ -1,0 +1,27 @@
+{% from "macros.jinja" import sorted_imports -%}
+"""HTTP transport models, separate from the application DTOs so the API contract stays stable.
+
+An amount on the wire is a `domain.amounts.DecimalStr`, never a float (C3, D17).
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict
+
+{% call sorted_imports() %}
+from {{ name }}.application.dto import PingResult
+{% endcall %}
+
+
+class PingOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    message: Literal["pong"]
+    tenant_id: UUID
+
+    @classmethod
+    def of(cls, result: PingResult) -> PingOut:
+        return cls(message=result.message, tenant_id=result.tenant_id)

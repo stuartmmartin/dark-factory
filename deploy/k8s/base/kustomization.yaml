@@ -1,0 +1,11 @@
+# Platform base shared by every service: a default-deny NetworkPolicy. A service's base
+# (deploy/k8s/<svc>/base) includes this; its overlays set the namespace. The Namespace itself is
+# NOT here: a cluster admin creates it with its Pod Security labels (deploy/k8s/cluster-admin/).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: dark-factory
+    includeSelectors: false
+resources:
+  - networkpolicy-default-deny.yaml

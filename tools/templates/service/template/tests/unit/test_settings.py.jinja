@@ -1,0 +1,115 @@
+{% from "macros.jinja" import sorted_imports -%}
+import pytest
+from pydantic import ValidationError
+
+{% call sorted_imports() %}
+from {{ name }}.infrastructure.settings import load_settings
+{% endcall %}
+
+PREFIX = "{{ NAME }}_"
+BASE = {
+    PREFIX + key: value
+    for key, value in {
+        "ENVIRONMENT": "test",
+        "AUTH_MODE": "dev",
+        "DATABASE_URL": "postgresql+asyncpg://sb_app:x@h/app",
+        "MIGRATOR_URL": "postgresql+asyncpg://sb_migrator:x@h/app",
+        "ADMIN_DATABASE_URL": "postgresql+asyncpg://sb_admin:x@h/postgres",
+        "ADMIN_USERNAME": "admin",
+        "ADMIN_PASSWORD": "pw",
+        "ADMIN_SECRET_KEY": "k" * 32,
+    }.items()
+}
+ADMIN_LOGIN = [PREFIX + k for k in ("ADMIN_USERNAME", "ADMIN_PASSWORD", "ADMIN_SECRET_KEY")]
+PRIVILEGED = {PREFIX + "MIGRATOR_URL", PREFIX + "ADMIN_DATABASE_URL"}
+
+
+def _env(monkeypatch: pytest.MonkeyPatch, values: dict[str, str]) -> None:
+    for k, v in values.items():
+        monkeypatch.setenv(k, v)
+
+
+def test_reads_prefixed_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    _env(monkeypatch, BASE)
+    settings = load_settings()
+    assert settings.environment == "test"
+    assert settings.database_name == "{{ name }}"
+    assert settings.database_url.get_secret_value().startswith("postgresql+asyncpg://sb_app")
+
+
+@pytest.mark.parametrize("missing", [PREFIX + "ENVIRONMENT", PREFIX + "AUTH_MODE"])
+def test_environment_and_auth_mode_are_required(
+    monkeypatch: pytest.MonkeyPatch, missing: str
+) -> None:
+    _env(monkeypatch, {k: v for k, v in BASE.items() if k != missing})
+    monkeypatch.delenv(missing, raising=False)
+    with pytest.raises(ValidationError, match=missing.removeprefix(PREFIX).lower()):
+        load_settings()
+
+
+def test_dev_auth_in_prod_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    _env(monkeypatch, {**BASE, PREFIX + "ENVIRONMENT": "prod", PREFIX + "AUTH_MODE": "dev"})
+    with pytest.raises(ValidationError, match="dev auth"):
+        load_settings()
+
+
+def test_non_api_processes_load_without_admin_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only the API mounts the admin, so only it is given the credentials (least privilege);
+    they are checked by `admin_credentials()`, not at load."""
+    for name in ADMIN_LOGIN:
+        monkeypatch.delenv(name, raising=False)
+    _env(monkeypatch, {k: v for k, v in BASE.items() if k not in ADMIN_LOGIN})
+    settings = load_settings()
+    assert settings.admin_username is None
+    assert settings.admin_secret_key is None
+
+
+def test_admin_credentials_are_returned_when_complete(monkeypatch: pytest.MonkeyPatch) -> None:
+    _env(monkeypatch, BASE)
+    credentials = load_settings().admin_credentials()
+    assert (credentials.username, credentials.password) == ("admin", "pw")
+    assert credentials.secret_key == "k" * 32
+
+
+@pytest.mark.parametrize("secret", ["short", "k" * 31], ids=["short", "31-chars"])
+def test_short_admin_secret_is_refused(monkeypatch: pytest.MonkeyPatch, secret: str) -> None:
+    _env(monkeypatch, {**BASE, PREFIX + "ADMIN_SECRET_KEY": secret})
+    settings = load_settings()
+    with pytest.raises(ValueError, match="at least 32"):
+        settings.admin_credentials()
+
+
+def test_prod_with_oidc_needs_no_admin_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ADMIN_LOGIN:
+        monkeypatch.delenv(name, raising=False)
+    prod = {k: v for k, v in BASE.items() if k not in ADMIN_LOGIN}
+    _env(monkeypatch, {**prod, PREFIX + "ENVIRONMENT": "prod", PREFIX + "AUTH_MODE": "oidc"})
+    assert load_settings().admin_secret_key is None
+
+
+@pytest.mark.parametrize("missing", ADMIN_LOGIN)
+def test_each_missing_admin_field_is_refused(monkeypatch: pytest.MonkeyPatch, missing: str) -> None:
+    _env(monkeypatch, {k: v for k, v in BASE.items() if k != missing})
+    monkeypatch.delenv(missing, raising=False)
+    settings = load_settings()
+    with pytest.raises(ValueError, match="required to mount the admin"):
+        settings.admin_credentials()
+
+
+@pytest.mark.parametrize("empty", ADMIN_LOGIN)
+def test_empty_admin_credentials_are_refused(monkeypatch: pytest.MonkeyPatch, empty: str) -> None:
+    _env(monkeypatch, {**BASE, empty: ""})
+    settings = load_settings()
+    with pytest.raises(ValueError, match="required to mount the admin"):
+        settings.admin_credentials()
+
+
+def test_the_app_processes_need_no_privileged_urls(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only the migrate module uses the migrator and admin URLs; the app processes run without
+    them."""
+    for name in PRIVILEGED:
+        monkeypatch.delenv(name, raising=False)
+    _env(monkeypatch, {k: v for k, v in BASE.items() if k not in PRIVILEGED})
+    settings = load_settings()
+    assert settings.migrator_url is None
+    assert settings.admin_database_url is None

@@ -1,0 +1,26 @@
+[project]
+name = "{{ name }}"
+version = "0.1.0"
+description = "The {{ name }} service."
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "alembic>=1.14",
+  "fastapi>=0.115",
+  "pydantic>=2.9",
+  "pydantic-settings>=2.6",
+  "sb-admin",
+  "sb-db",
+  "sb-http",
+  "sb-kernel",
+  "sb-obs",
+  "sqladmin>=0.20",
+  "sqlalchemy[asyncio,postgresql-asyncpg]>=2.0.36,<2.2",
+  "uvicorn>=0.32",
+]
+
+[dependency-groups]
+dev = ["sb-testing", "httpx>=0.28", "structlog>=24", "watchfiles>=1.0"]
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"

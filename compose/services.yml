@@ -1,0 +1,102 @@
+# Service containers for local development, layered on docker-compose.yml by mk/compose.mk.
+# One profile per service (`ledger`) plus one for its migration job (`ledger-migrate`).
+# `make up ledger` runs ledger-migrate, then starts the ledger profile; `make seed SVC=ledger`
+# seeds demo data. The dev image has no source: src and libs/py are bind-mounted, so no edit
+# needs an image rebuild. The API reloads itself (uvicorn --reload). The worker and consumer run
+# exactly as in prod (no reloader), so a crash exits the process and `restart: unless-stopped`
+# restarts it. To pick up an edit in them run `make restart ledger` (`make up ledger` does not
+# recreate a container whose image and config are unchanged).
+# Published ports bind to 127.0.0.1 only, like every compose port.
+
+x-ledger-build: &ledger-build
+  context: ..
+  dockerfile: services/ledger/Dockerfile
+  target: dev
+  args: {SERVICE: ledger}
+
+x-ledger-environment: &ledger-environment
+  SERVICE: ledger
+  # Required, no defaults (D1): dev auth and the admin exist only in local/dev/test/ci.
+  LEDGER_ENVIRONMENT: dev
+  LEDGER_AUTH_MODE: ${SB_AUTH_MODE:?set SB_AUTH_MODE in .env (see .env.example)}
+  # The app processes get only the sb_app URL (RLS applies); the privileged URLs are given to
+  # ledger-migrate alone.
+  LEDGER_DATABASE_URL: postgresql+asyncpg://sb_app:${SB_APP_PASSWORD:?set SB_APP_PASSWORD in .env (see .env.example)}@postgres:5432/ledger
+  LEDGER_DATABASE_NAME: ledger
+  LEDGER_KAFKA_BOOTSTRAP: kafka:29092
+  LEDGER_TEMPORAL_TARGET: temporal:7233
+  LEDGER_TEMPORAL_NAMESPACE: default
+  LEDGER_TASK_QUEUE: ledger
+  LEDGER_LOG_LEVEL: INFO
+
+x-ledger-volumes: &ledger-volumes
+  - ../services/ledger/src:/repo/services/ledger/src
+  - ../services/ledger/migrations:/repo/services/ledger/migrations
+  - ../services/ledger/alembic.ini:/repo/services/ledger/alembic.ini:ro
+  - ../libs/py:/repo/libs/py
+
+x-infra-healthy: &infra-healthy
+  postgres: {condition: service_healthy}
+  kafka: {condition: service_healthy}
+  temporal: {condition: service_healthy}
+
+services:
+  ledger-migrate:
+    profiles: ["ledger-migrate"]
+    build: *ledger-build
+    environment:
+      <<: *ledger-environment
+      # The only process given the BYPASSRLS migrator and the database-creating admin URLs.
+      LEDGER_MIGRATOR_URL: postgresql+asyncpg://sb_migrator:${SB_MIGRATOR_PASSWORD:?set SB_MIGRATOR_PASSWORD in .env (see .env.example)}@postgres:5432/ledger
+      LEDGER_ADMIN_DATABASE_URL: postgresql+asyncpg://sb_admin:${SB_PG_ADMIN_PASSWORD:?set SB_PG_ADMIN_PASSWORD in .env (see .env.example)}@postgres:5432/postgres
+    volumes: *ledger-volumes
+    command: ["python", "-m", "ledger.migrate"]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  ledger-api:
+    profiles: ["ledger"]
+    build: *ledger-build
+    environment:
+      <<: *ledger-environment
+      # D8: SB_ADMIN_* map to LEDGER_ADMIN_*; the secret must be at least 32 characters.
+      # Only the API mounts the admin, so only it gets them (build_api fails fast without).
+      LEDGER_ADMIN_USERNAME: ${SB_ADMIN_USERNAME:?set SB_ADMIN_USERNAME in .env (see .env.example)}
+      LEDGER_ADMIN_PASSWORD: ${SB_ADMIN_PASSWORD:?set SB_ADMIN_PASSWORD in .env (see .env.example)}
+      LEDGER_ADMIN_SECRET_KEY: ${SB_ADMIN_SECRET_KEY:?set SB_ADMIN_SECRET_KEY (32+ chars) in .env (see .env.example)}
+    volumes: *ledger-volumes
+    # uvicorn with log_config=None and reload dirs services/ledger/src and libs/py (D19).
+    command: ["python", "-m", "ledger.main", "--reload"]
+    ports: ["127.0.0.1:${SB_LEDGER_API_PORT:-8001}:8000"]
+    depends_on: *infra-healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3).status==200 else 1)"
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 10s
+
+  ledger-worker:
+    profiles: ["ledger"]
+    build: *ledger-build
+    environment: *ledger-environment
+    volumes: *ledger-volumes
+    command: ["python", "-m", "ledger.worker"]
+    # No reloader, as in prod: a crash exits the process and compose restarts it.
+    restart: unless-stopped
+    depends_on: *infra-healthy
+
+  ledger-consumer:
+    profiles: ["ledger"]
+    build: *ledger-build
+    environment: *ledger-environment
+    volumes: *ledger-volumes
+    command: ["python", "-m", "ledger.consumer"]
+    # No reloader, as in prod: a handler error or a fatal PublishFailed exits the process on
+    # purpose (D11, D12) and compose restarts it.
+    restart: unless-stopped
+    depends_on: *infra-healthy

@@ -1,0 +1,11 @@
+{#- One isort section, sorted as ruff sorts it: `import x` lines first, then `from x import`
+    lines, each alphabetically by module. The service's own module name decides where its
+    imports fall among the sb_* ones, so a template cannot hard-code the order. -#}
+{% macro sorted_imports() -%}
+{%- set lines = caller().strip().split("\n") | map("trim") | reject("equalto", "") | list -%}
+{%- set plain = [] -%}{%- set froms = [] -%}
+{%- for line in lines -%}
+{%- if line.startswith("import ") %}{% set _ = plain.append(line) %}{% else %}{% set _ = froms.append(line) %}{% endif -%}
+{%- endfor -%}
+{{ ((plain | sort) + (froms | sort)) | join("\n") }}
+{%- endmacro %}

@@ -1,0 +1,93 @@
+# Copier template for a new service: `make new-service NAME=<snake>` renders it into
+# services/<name>. It renders the reference service's layout (skeleton, settings, domain,
+# application, fakes, infrastructure, migration, HTTP, admin, bootstrap, main, migrate,
+# Dockerfile) with one example use case (`Ping`). Messaging and workflows are added later with
+# the kafka-event and temporal-workflow skills. Every template file ends in .jinja, so no
+# half-rendered Python is ever linted, type-checked or collected in this repo.
+_subdirectory: template
+_templates_suffix: .jinja
+_min_copier_version: "9.4"
+
+# Names a service may not take (checked in `name`'s validator; the make guard checks the same
+# rules with Python itself): the compose/make names (infra and the compose profiles core, init,
+# tools), `tests` (it would shadow each service's tests package), and every Python keyword and
+# standard-library module. Copier cannot import Python, so the list is written out;
+# tools/checks/tests/test_templates.py fails if it stops covering the running interpreter.
+reserved:
+  type: yaml
+  when: false
+  default: [
+    core, infra, init, tests, tools, abc, and, antigravity, argparse, array, as, assert, ast,
+    async, asyncio, atexit, await, base64, bdb, binascii, bisect, break, builtins, bz2,
+    calendar, case, class, cmath, cmd, code, codecs, codeop, collections, colorsys, compileall,
+    concurrent, configparser, contextlib, contextvars, continue, copy, copyreg, csv, ctypes,
+    curses, dataclasses, datetime, dbm, decimal, def, del, difflib, dis, doctest, elif, else,
+    email, encodings, ensurepip, enum, errno, except, faulthandler, fcntl, filecmp, fileinput,
+    finally, fnmatch, for, fractions, from, ftplib, functools, gc, genericpath, getopt,
+    getpass, gettext, glob, global, graphlib, grp, gzip, hashlib, heapq, hmac, html, http,
+    idlelib, if, imaplib, import, importlib, in, inspect, io, ipaddress, is, itertools, json,
+    keyword, lambda, linecache, locale, logging, lzma, mailbox, marshal, match, math,
+    mimetypes, mmap, modulefinder, msvcrt, multiprocessing, netrc, nonlocal, not, nt, ntpath,
+    nturl2path, numbers, opcode, operator, optparse, or, os, pass, pathlib, pdb, pickle,
+    pickletools, pkgutil, platform, plistlib, poplib, posix, posixpath, pprint, profile,
+    pstats, pty, pwd, py_compile, pyclbr, pydoc, pydoc_data, pyexpat, queue, quopri, raise,
+    random, re, readline, reprlib, resource, return, rlcompleter, runpy, sched, secrets,
+    select, selectors, shelve, shlex, shutil, signal, site, smtplib, socket, socketserver,
+    sqlite3, sre_compile, sre_constants, sre_parse, ssl, stat, statistics, string, stringprep,
+    struct, subprocess, symtable, sys, sysconfig, syslog, tabnanny, tarfile, tempfile, termios,
+    textwrap, this, threading, time, timeit, tkinter, token, tokenize, tomllib, trace,
+    traceback, tracemalloc, try, tty, turtle, turtledemo, type, types, typing, unicodedata,
+    unittest, urllib, uuid, venv, warnings, wave, weakref, webbrowser, while, winreg, winsound,
+    with, wsgiref, xml, xmlrpc, yield, zipapp, zipfile, zipimport, zlib, zoneinfo
+  ]
+
+# Passed by make new-service (derived from the workspace); empty when rendering by hand.
+peers:
+  type: str
+  default: ""
+  help: The existing services, space-separated (for the A9 independence contract)
+
+taken:
+  type: str
+  default: ""
+  help: The import packages of every existing workspace member, space-separated
+
+independence_contract:
+  type: bool
+  default: false
+  help: Whether .importlinter already has the services-independent contract
+
+name:
+  type: str
+  help: Service name in snake_case (the package, the <NAME>_ env prefix, the compose profile)
+  # At most 24 characters: the templates keep every line within ruff's 100 at that length.
+  validator: >-
+    {% if not (name | regex_search('^[a-z][a-z0-9_]*$')) %}name must match ^[a-z][a-z0-9_]*$
+    {%- elif name | length > 24 %}name must be at most 24 characters
+    {%- elif name in reserved %}name '{{ name }}' is reserved (a make/compose name, `tests`, a
+    Python keyword or a standard-library module)
+    {%- elif name in (taken.split() + peers.split()) %}name '{{ name }}' is already a
+    workspace member
+    {%- elif name.startswith('sb_') %}name '{{ name }}' is reserved for platform libraries
+    (sb_*){% endif %}
+
+api_port:
+  type: int
+  default: 8002
+  help: Host port of the API on 127.0.0.1 (make new-service passes the next free one)
+
+# Derived names (not asked).
+Name:
+  type: str
+  default: "{{ name.split('_') | map('capitalize') | join('') }}"
+  when: false
+
+NAME:
+  type: str
+  default: "{{ name | upper }}"
+  when: false
+
+kebab:
+  type: str
+  default: "{{ name | replace('_', '-') }}"
+  when: false

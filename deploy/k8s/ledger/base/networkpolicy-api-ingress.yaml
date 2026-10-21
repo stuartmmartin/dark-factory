@@ -1,0 +1,19 @@
+# Ingress to the API on 8000 from pods in the same namespace (on top of the default-deny).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ledger-api-ingress
+  labels:
+    app.kubernetes.io/name: ledger
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ledger
+      app.kubernetes.io/component: api
+  policyTypes: [Ingress]
+  ingress:
+    # Any pod in the same namespace (the ingress controller / gateway lives in an overlay).
+    - from:
+        - podSelector: {}
+      ports:
+        - {protocol: TCP, port: 8000}

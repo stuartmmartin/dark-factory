@@ -1,0 +1,20 @@
+[project]
+name = "sb-testing"
+version = "0.1.0"
+description = "pytest plugin: network guard, FakeClock, Postgres/Kafka testcontainers, Hypothesis strategies."
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "pytest>=8.3",
+  "hypothesis>=6.115",
+  "testcontainers[postgres]>=4.15",
+  "confluent-kafka>=2.6",
+  "structlog>=24",
+  "sb-kernel",
+]
+
+[project.entry-points.pytest11]
+sb_testing = "sb_testing.plugin"
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"

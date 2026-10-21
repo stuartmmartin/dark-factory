@@ -1,0 +1,18 @@
+# Non-secret ledger settings (read by ledger.infrastructure.settings.Settings, prefix LEDGER_).
+# LEDGER_ENVIRONMENT and LEDGER_AUTH_MODE are deliberately absent: the overlay must set them, and
+# Settings refuses to start without them (D1).
+# Dependency ports (the NetworkPolicy egress rules open exactly these):
+#   Postgres 5432/TCP, Kafka 9092/TCP, Temporal frontend 7233/TCP, DNS 53/UDP+TCP.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ledger-config
+  labels:
+    app.kubernetes.io/name: ledger
+data:
+  LEDGER_DATABASE_NAME: ledger
+  LEDGER_KAFKA_BOOTSTRAP: kafka:9092
+  LEDGER_TEMPORAL_TARGET: temporal-frontend:7233
+  LEDGER_TEMPORAL_NAMESPACE: default
+  LEDGER_TASK_QUEUE: ledger
+  LEDGER_LOG_LEVEL: INFO

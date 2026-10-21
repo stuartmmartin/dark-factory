@@ -1,0 +1,22 @@
+[project]
+name = "sb-admin"
+version = "0.1.0"
+description = "SQLAdmin setup, dev admin auth backend, and a generic acceptor view over pure policies."
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "sqladmin[auth]>=0.20",  # [auth] extra supplies itsdangerous (needed by SessionMiddleware)
+  "sqlalchemy>=2.0",
+  "starlette>=0.40",
+  "pydantic>=2.9",
+  "sb-kernel",
+  "sb-obs",
+]
+
+[dependency-groups]
+# aiosqlite: placeholder engine only (SQLAdmin requires one; acceptor views never query it).
+# sb-http: only for the mount_admin integration test; library source never imports it.
+dev = ["httpx>=0.28", "sb-testing", "aiosqlite>=0.20", "sb-http", "structlog>=24"]
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"

@@ -1,0 +1,12 @@
+# Human-owned coverage policy. Sources are discovered by mk/quality.mk, never by imports alone.
+[run]
+branch = True
+relative_files = True
+
+[report]
+include_namespace_packages = True
+precision = 2
+show_missing = True
+
+[xml]
+output = coverage.xml

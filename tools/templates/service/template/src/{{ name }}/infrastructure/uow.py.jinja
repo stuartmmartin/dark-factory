@@ -1,0 +1,18 @@
+"""The SQL unit of work: `sb_db`'s tenant-scoped transaction plus this service's repositories."""
+
+from __future__ import annotations
+
+from typing import Self
+
+from sb_db.uow import SqlAlchemyUnitOfWork
+
+
+class Sql{{ Name }}UnitOfWork(SqlAlchemyUnitOfWork):
+    """Single use (D14). Repositories exist only after `__aenter__`, like `session`."""
+
+    async def __aenter__(self) -> Self:
+        # Begins the transaction and sets app.tenant_id; raises if re-entered. Build this
+        # service's repositories on `self.session` after it, e.g.
+        # `self.things = SqlThingRepository(self.session)`.
+        await super().__aenter__()
+        return self

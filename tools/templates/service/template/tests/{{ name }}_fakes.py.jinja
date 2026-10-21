@@ -1,0 +1,211 @@
+{% from "macros.jinja" import sorted_imports -%}
+"""In-memory fakes of the {{ name }} ports (T3).
+
+Writes are staged and applied only on commit, so use case tests see real transactional
+behaviour (nothing persists when a rule fails).
+
+The lifecycle mirrors `sb_db.uow.SqlAlchemyUnitOfWork` (D14): single use, commit after finishing
+raises, rollback after commit is a no-op, buffers refuse work once finished, and `fake_joined`
+stands in for `sb_db.uow.joined` (which is typed for SqlAlchemyUnitOfWork only).
+
+Add a fake repository per repository port: committed rows in the state dataclass, staged
+rows on the unit of work (created in `__aenter__`, applied in `commit`), reads filtered to
+`tenant_id`.
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import AsyncGenerator, Callable, Mapping
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from dataclasses import dataclass, field
+from types import TracebackType
+from typing import Any, Self, cast
+from uuid import UUID
+
+{% call sorted_imports() %}
+from sb_db.audit import canonical_json
+from sb_kernel.context import current_context
+from sb_kernel.errors import Conflict, IdempotencyKeyReused
+from sb_kernel.events import DomainEvent
+from sb_kernel.uow import AuditLog, IdempotencyStore, Outbox, StoredResponse
+from {{ name }}.application.ports import UowFactory
+{% endcall %}
+
+FINISHED = "unit of work already finished"  # same text as sb_db.lifecycle.FINISHED
+
+
+@dataclass
+class AuditRecord:
+    tenant_id: UUID
+    action: str
+    entity_type: str
+    entity_id: str
+    before: dict[str, Any] | None
+    after: dict[str, Any] | None
+    reason: str | None
+
+
+def _as_stored(payload: Mapping[str, object] | None) -> dict[str, Any] | None:
+    """What SqlAuditLog stores: a canonical JSON copy (floats and naive datetimes raise)."""
+    if payload is None:
+        return None
+    return cast(dict[str, Any], json.loads(canonical_json(payload)))
+
+
+@dataclass
+class {{ Name }}State:
+    """Committed state shared by every Fake{{ Name }}UoW created by one factory."""
+
+    audit: list[AuditRecord] = field(default_factory=list)
+    events: list[DomainEvent] = field(default_factory=list)
+    idempotency: dict[tuple[UUID, str], StoredResponse] = field(default_factory=dict)
+    commits: int = 0
+    # Test hook for an idempotency race: `idempotency.get` returns None (as if the other request
+    # had not committed yet) while `save` still sees the committed row.
+    hide_idempotency_reads: bool = False
+
+
+class FakeAudit:
+    def __init__(self, uow: Fake{{ Name }}UoW) -> None:
+        self._uow = uow
+
+    def record(
+        self,
+        *,
+        action: str,
+        entity_type: str,
+        entity_id: str,
+        before: Mapping[str, object] | None,
+        after: Mapping[str, object] | None,
+        reason: str | None = None,
+    ) -> None:
+        self._uow.check_active()
+        self._uow.staged_audit.append(
+            AuditRecord(
+                self._uow.tenant_id,
+                action,
+                entity_type,
+                entity_id,
+                _as_stored(before),
+                _as_stored(after),
+                reason,
+            )
+        )
+
+
+class FakeOutbox:
+    def __init__(self, uow: Fake{{ Name }}UoW) -> None:
+        self._uow = uow
+
+    def add(self, event: DomainEvent) -> None:
+        self._uow.check_active()
+        self._uow.staged_events.append(event)
+
+
+class FakeIdempotency:
+    """Same contract as sb_db.idempotency.SqlIdempotencyStore (D14, D15)."""
+
+    def __init__(self, uow: Fake{{ Name }}UoW) -> None:
+        self._uow = uow
+
+    def _existing(self, key: str) -> StoredResponse | None:
+        k = (self._uow.tenant_id, key)
+        return self._uow.staged_idempotency.get(k) or self._uow.state.idempotency.get(k)
+
+    async def get(self, key: str) -> StoredResponse | None:
+        if self._uow.state.hide_idempotency_reads:
+            return None
+        return self._existing(key)
+
+    async def save(self, key: str, request_hash: str, response: Mapping[str, object]) -> None:
+        self._uow.check_active()
+        existing = self._existing(key)
+        if existing is not None:
+            if existing.request_hash != request_hash:
+                raise IdempotencyKeyReused("idempotency key already used for a different request")
+            raise Conflict("idempotency key already in use")
+        stored = json.loads(json.dumps(response))  # JSONB: non-JSON values raise TypeError
+        self._uow.staged_idempotency[(self._uow.tenant_id, key)] = StoredResponse(
+            request_hash, stored
+        )
+
+
+class Fake{{ Name }}UoW:
+    # Typed as the ports, so pyright checks the fakes conform (see `fake_factory`).
+    audit: AuditLog
+    outbox: Outbox
+    idempotency: IdempotencyStore
+
+    def __init__(self, state: {{ Name }}State) -> None:
+        self.state = state
+        self._entered = self._finished = self._commit_called = False
+        self._joined = 0  # open fake_joined views: commit/rollback are no-ops while > 0
+        self.audit, self.outbox = FakeAudit(self), FakeOutbox(self)
+        self.idempotency = FakeIdempotency(self)
+
+    @property
+    def active(self) -> bool:
+        return self._entered and not self._finished
+
+    def check_active(self) -> None:
+        if not self.active:
+            raise RuntimeError(FINISHED if self._finished else "unit of work not entered")
+
+    @asynccontextmanager
+    async def joined_view(self) -> AsyncGenerator[Self]:
+        if not self.active:
+            raise RuntimeError("joined view: the outer unit of work is not active")
+        self._joined += 1
+        try:
+            yield self  # an exception propagates, so the owner rolls back
+        finally:
+            self._joined -= 1
+
+    async def __aenter__(self) -> Self:
+        if self._entered:
+            raise RuntimeError("unit of work already entered; create a new one per use case")
+        self.tenant_id = current_context().tenant_id  # raises Forbidden, like the SQL UoW
+        self._entered = True
+        self.staged_audit: list[AuditRecord] = []
+        self.staged_events: list[DomainEvent] = []
+        self.staged_idempotency: dict[tuple[UUID, str], StoredResponse] = {}
+        return self
+
+    async def commit(self) -> None:
+        if self._joined:  # the owner of the transaction makes the one commit
+            return
+        if self._finished:
+            raise RuntimeError(FINISHED)
+        self._finished = self._commit_called = True
+        self.state.audit.extend(self.staged_audit)
+        self.state.events.extend(self.staged_events)
+        self.state.idempotency.update(self.staged_idempotency)
+        self.state.commits += 1
+
+    async def rollback(self) -> None:
+        if self._joined or self._commit_called:  # no-op when joined, and after a commit
+            return
+        if self._finished:
+            raise RuntimeError(FINISHED)
+        self._finished = True
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        self._finished = True  # uncommitted staged writes are simply dropped
+
+
+def fake_factory(state: {{ Name }}State) -> UowFactory:
+    """A `UowFactory` of single-use fakes sharing `state` (typed, so pyright checks conformance)."""
+    return lambda: Fake{{ Name }}UoW(state)
+
+
+def fake_joined(
+    uow: Fake{{ Name }}UoW,
+) -> Callable[[], AbstractAsyncContextManager[Fake{{ Name }}UoW]]:
+    """The fake counterpart of `sb_db.uow.joined`: a factory that joins the open `uow`."""
+    return uow.joined_view

@@ -1,0 +1,25 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mutmut-cache/
+dist/
+build/
+.DS_Store
+.env
+.env.*
+!.env.example
+.claude/settings.local.json
+.claude/worktrees/
+.superpowers/
+# Working docs (specs, plans, ledgers, notes): harvested, never committed. See the harvest skill.
+.work/
+*-E
+*.orig
+
+# mutmut output
+mutants/

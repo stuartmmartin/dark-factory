@@ -1,0 +1,22 @@
+"""Ports the use cases depend on; the infrastructure layer implements them (A1, A6).
+
+Add a repository Protocol here for each aggregate, then add it as an attribute of the unit
+of work Protocol below. Every repository is scoped to the current tenant: RLS does it in SQL,
+the fakes filter.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
+from typing import Protocol
+
+from sb_kernel.uow import UnitOfWork
+
+
+class {{ Name }}UnitOfWork(UnitOfWork, Protocol):
+    """The platform ports (audit, outbox, idempotency) plus this service's repositories."""
+
+
+UowFactory = Callable[[], AbstractAsyncContextManager[{{ Name }}UnitOfWork]]
+"""A new unit of work per call, or `sb_db.uow.joined(uow)` to join an open one (D13)."""

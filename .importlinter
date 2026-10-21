@@ -1,0 +1,127 @@
+# Import contracts. HUMAN-OWNED (sb-agentkit pre-edit guard + CODEOWNERS): agents must not edit.
+# This file is the package-boundary POLICY enforcer (ADR-0003). Services add layer contracts here.
+[importlinter]
+include_external_packages = True
+root_packages =
+    sb_checks
+    sb_graph
+    sb_agentkit
+    sb_kernel
+    sb_obs
+    sb_testing
+    sb_db
+    sb_messaging
+    sb_workflows
+    sb_http
+    sb_admin
+    ledger
+
+[importlinter:contract:tools-independent]
+name = Repo tools are independent of each other
+type = independence
+modules =
+    sb_checks
+    sb_graph
+    sb_agentkit
+
+[importlinter:contract:kernel-is-pure]
+name = sb_kernel imports no framework or other sb_* library (A2, A10)
+type = forbidden
+source_modules =
+    sb_kernel
+forbidden_modules =
+    sqlalchemy
+    fastapi
+    starlette
+    sqladmin
+    temporalio
+    confluent_kafka
+    httpx
+    pydantic_settings
+    structlog
+    sb_checks
+    sb_graph
+    sb_agentkit
+    sb_obs
+    sb_testing
+    sb_db
+    sb_messaging
+    sb_workflows
+    sb_http
+    sb_admin
+
+[importlinter:contract:testing-only-in-tests]
+name = No library source imports sb_testing (test support stays in tests)
+type = forbidden
+source_modules =
+    sb_kernel
+    sb_obs
+    sb_db
+    sb_messaging
+    sb_workflows
+    sb_http
+    sb_admin
+    ledger
+forbidden_modules =
+    sb_testing
+
+[importlinter:contract:lib-layers]
+name = Platform library dependency direction (A10)
+type = layers
+layers =
+    sb_admin | sb_http | sb_workflows | sb_messaging
+    sb_db
+    sb_obs
+    sb_kernel
+
+[importlinter:contract:ledger-layers]
+name = ledger CLEAN layers (A1)
+type = layers
+containers =
+    ledger
+layers =
+    main | (worker) | (consumer) | (seed)
+    bootstrap | migrate
+    interface
+    infrastructure
+    application
+    domain
+
+[importlinter:contract:ledger-pure-core]
+name = ledger domain/application import no frameworks or adapters (A2)
+type = forbidden
+source_modules =
+    ledger.domain
+    ledger.application
+forbidden_modules =
+    sqlalchemy
+    fastapi
+    starlette
+    sqladmin
+    temporalio
+    confluent_kafka
+    httpx
+    pydantic_settings
+    structlog
+    sb_db
+    sb_messaging
+    sb_workflows
+    sb_http
+    sb_admin
+    sb_obs
+    sb_testing
+
+[importlinter:contract:libs-never-import-services]
+name = Platform libraries never import services (A10)
+type = forbidden
+source_modules =
+    sb_kernel
+    sb_obs
+    sb_testing
+    sb_db
+    sb_messaging
+    sb_workflows
+    sb_http
+    sb_admin
+forbidden_modules =
+    ledger

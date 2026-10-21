@@ -1,0 +1,14 @@
+"""ORM tables of this service's database: the platform tables, then its own.
+
+Add each table as a `TenantScoped` model here, create it in a new migration and put RLS on it
+there with `sb_db.rls.enable_rls_sql` (A13, D5). The platform tables get their RLS only from
+`platform_table_ddl()` in the initial migration.
+"""
+
+from __future__ import annotations
+
+from sb_db.base import make_base
+from sb_db.platform import install_platform_tables
+
+Base = make_base()
+platform = install_platform_tables(Base.metadata)

@@ -1,0 +1,34 @@
+# Ledger, prod cluster.
+#
+# FAIL CLOSED: prod sets LEDGER_AUTH_MODE=oidc, and OIDC is not implemented yet
+# (sb_http.auth.backend_for raises NotImplementedError for "oidc"). The ledger-api Deployment
+# therefore crash-loops until OIDC lands. That is intended. Do NOT stub OIDC and do NOT set dev
+# auth here (Settings refuses dev auth outside local/dev/test/ci). The SQLAdmin is never mounted
+# in prod (D8), so the prod ledger-secrets Secret needs only LEDGER_DATABASE_URL (no
+# LEDGER_ADMIN_*); ledger-migrate-secrets holds LEDGER_MIGRATOR_URL and LEDGER_ADMIN_DATABASE_URL.
+#
+# The egress CIDRs in networkpolicy-egress.yaml are placeholders (TEST-NET-1, unroutable): replace
+# them with the managed Postgres / Kafka / Temporal ranges before the first prod deploy.
+#
+# The committed image tag below is a PLACEHOLDER (no image is published for it). deploy.yml sets
+# the real image at deploy time: it resolves the dispatched main-branch SHA's tag to its digest
+# and runs `kustomize edit set image ...@sha256:<digest>` in its own checkout (not committed).
+# The namespace is created by a cluster admin (deploy/k8s/cluster-admin/), not by this overlay.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: dark-factory-prod
+resources:
+  - ../../base
+images:
+  - name: ghcr.io/stuartmmartin/dark-factory-ledger
+    newTag: 108df1999c83a7441d1d4625b1290912475d501c
+replicas:
+  - {name: ledger-api, count: 2}
+  - {name: ledger-worker, count: 1}
+  - {name: ledger-consumer, count: 2}
+patches:
+  - path: configmap.yaml
+  - path: networkpolicy-egress.yaml
+  - path: resources-api.yaml
+  - path: resources-worker.yaml
+  - path: resources-consumer.yaml

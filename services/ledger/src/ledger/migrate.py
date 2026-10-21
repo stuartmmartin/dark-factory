@@ -1,0 +1,104 @@
+"""`python -m ledger.migrate`: create the ledger database if needed, then upgrade to head (D7).
+
+Run from the repository root (tests, CI, compose and the image's `WORKDIR /repo` all do), which
+is where `alembic_config` finds `services/ledger/migrations`.
+
+It is the only process that needs `LEDGER_MIGRATOR_URL` and `LEDGER_ADMIN_DATABASE_URL`; it
+refuses to start, naming them, when either is missing. On success it logs `ledger.migrated`
+with the head revision.
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+from alembic import command
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+
+from ledger.infrastructure.settings import Settings, load_settings
+from sb_db.database import ensure_database
+from sb_obs.logging import configure_logging, get_logger
+
+__all__ = [
+    "MIGRATIONS",
+    "MigrationSettingsError",
+    "alembic_config",
+    "main",
+    "migrate",
+    "migrator_url",
+]
+
+MIGRATIONS = "services/ledger/migrations"
+MIGRATOR_ROLE = "sb_migrator"
+MIGRATOR_ENV = "LEDGER_MIGRATOR_URL"
+ADMIN_DATABASE_ENV = "LEDGER_ADMIN_DATABASE_URL"
+
+_log = get_logger(__name__)
+
+
+class MigrationSettingsError(RuntimeError):
+    """The privileged URLs only the migration needs are not configured."""
+
+
+def _missing(settings: Settings) -> list[str]:
+    return [
+        env
+        for env, value in (
+            (MIGRATOR_ENV, settings.migrator_url),
+            (ADMIN_DATABASE_ENV, settings.admin_database_url),
+        )
+        if value is None or not value.get_secret_value()
+    ]
+
+
+def migrator_url(settings: Settings) -> str:
+    """The migrator URL, or MigrationSettingsError naming LEDGER_MIGRATOR_URL (env.py uses it)."""
+    if settings.migrator_url is None or not settings.migrator_url.get_secret_value():
+        raise MigrationSettingsError(f"{MIGRATOR_ENV} must be set to run migrations")
+    return settings.migrator_url.get_secret_value()
+
+
+def alembic_config(url: str) -> Config:
+    """Alembic config for the ledger migrations against `url`.
+
+    The URL goes in `attributes`, never `set_main_option`: ConfigParser interpolation breaks on
+    a `%` in a password. `script_location` is relative to the repo root, not to `__file__`: the
+    prod image installs `ledger` non-editable, away from the migrations.
+    """
+    config = Config()
+    config.set_main_option("script_location", MIGRATIONS)
+    config.attributes["url"] = url
+    return config
+
+
+def migrate(settings: Settings) -> str:
+    """Create the database if needed and upgrade it to head; return the head revision.
+
+    Sync, outside any event loop (D7): env.py's run_migrations calls asyncio.run.
+    """
+    missing = _missing(settings)
+    if missing or settings.admin_database_url is None:  # checked before any I/O
+        raise MigrationSettingsError(f"{', '.join(missing)} must be set to run migrations")
+    asyncio.run(
+        ensure_database(
+            settings.admin_database_url.get_secret_value(),
+            settings.database_name,
+            owner=MIGRATOR_ROLE,
+        )
+    )
+    config = alembic_config(migrator_url(settings))
+    command.upgrade(config, "head")
+    head = ScriptDirectory.from_config(config).get_current_head()
+    _log.info("ledger.migrated", revision=head, database=settings.database_name)
+    return head or ""
+
+
+def main() -> None:
+    settings = load_settings()
+    configure_logging(level=settings.log_level)  # D19: this process's own entrypoint
+    migrate(settings)
+
+
+if __name__ == "__main__":
+    main()

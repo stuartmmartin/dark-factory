@@ -1,0 +1,79 @@
+"""Service-wide test setup.
+
+Tests import the shared in-memory fakes as `ledger_fakes` (`tests/ledger_fakes.py`). Under
+`--import-mode=importlib` that only works when this directory is on `sys.path`, so this conftest
+puts it there (per service, rather than a root `pythonpath` entry per service).
+
+The module name is `<service>_fakes`, never plain `fakes`: one pytest session shares
+`sys.modules` across services, so a second service's `fakes` would resolve to the first's
+(same precedent as `libs/py/sb_workflows/tests/integration/conftest.py`).
+"""
+
+import sys
+from pathlib import Path
+
+_TESTS = str(Path(__file__).resolve().parent)
+if _TESTS not in sys.path:
+    sys.path.insert(0, _TESTS)
+
+import asyncio  # noqa: E402 - after the sys.path setup above
+from collections.abc import AsyncIterator  # noqa: E402
+
+import pytest  # noqa: E402
+from alembic import command  # noqa: E402
+from pytest_asyncio import is_async_test  # noqa: E402
+from sqlalchemy.engine import make_url  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker  # noqa: E402
+
+from ledger.migrate import MIGRATOR_ROLE, alembic_config  # noqa: E402
+from sb_db.database import ensure_database  # noqa: E402
+from sb_db.engine import create_engine, session_factory  # noqa: E402
+
+# The ledger's own database on the session's Postgres container: other members' tests create
+# platform tables in the default database, which would collide with the ledger migration.
+TEST_DATABASE = "ledger_test"
+
+_DB_TIERS = ("contract", "integration")
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Run this service's database-backed async tests on the session loop: the pooled asyncpg
+    connections of the session-scoped `ledger_sessions` engine belong to it."""
+    session_loop = pytest.mark.asyncio(loop_scope="session")
+    here = Path(__file__).resolve().parent
+    for item in items:
+        path = item.path.resolve()
+        if is_async_test(item) and any(here / tier in path.parents for tier in _DB_TIERS):
+            item.add_marker(session_loop, append=False)
+
+
+def _on_test_database(url: str) -> str:
+    return make_url(url).set(database=TEST_DATABASE).render_as_string(hide_password=False)
+
+
+@pytest.fixture(scope="session")
+def ledger_migrator_url(postgres_url: str, postgres_migrator_url: str) -> str:
+    """sb_migrator's URL for the ledger test database, created (owned by sb_migrator) if needed,
+    as `ledger.migrate` does. Sync (D7): no event loop is running here."""
+    asyncio.run(ensure_database(postgres_url, TEST_DATABASE, owner=MIGRATOR_ROLE))
+    return _on_test_database(postgres_migrator_url)
+
+
+@pytest.fixture(scope="session")
+def ledger_db(ledger_migrator_url: str, postgres_app_url: str) -> str:
+    """Migrate the ledger test database once, as sb_migrator (D6); return its sb_app URL.
+
+    Sync on purpose (D7): run_migrations calls asyncio.run, which fails under a running loop.
+    """
+    command.upgrade(alembic_config(ledger_migrator_url), "head")
+    return _on_test_database(postgres_app_url)
+
+
+@pytest.fixture(scope="session")
+async def ledger_sessions(ledger_db: str) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    """One engine per test session (D14), as sb_app: RLS applies. hide_parameters on, no echo."""
+    engine = create_engine(ledger_db)
+    try:
+        yield session_factory(engine)
+    finally:
+        await engine.dispose()

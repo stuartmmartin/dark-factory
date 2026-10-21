@@ -1,0 +1,74 @@
+[project]
+name = "dark-factory"
+version = "0.0.0"
+description = "dark_factory monorepo workspace root (virtual, not a package)."
+requires-python = ">=3.13,<3.14"
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "sb-checks",
+  "sb-graph",
+  "sb-agentkit",
+  "sb-kernel",
+  "sb-obs",
+  "sb-testing",
+  "sb-db",
+  "sb-messaging",
+  "sb-workflows",
+  "asyncpg>=0.30",
+  "confluent-kafka>=2.6",
+  "pytest-asyncio>=0.24",
+  "hypothesis>=6.115",
+  "pytest>=8.3",
+  "coverage>=7.10",  # 100% branch/statement coverage gate for kernel and service logic
+  "ruff>=0.12",
+  "pyright[nodejs]>=1.1.400",
+  "tach>=0.29",
+  "import-linter>=2.3",
+  "deptry>=0.23",
+  "pre-commit>=4",
+  "types-pyyaml>=6",
+  "mutmut>=3.2",
+  "copier>=9.4",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["libs/py/*", "tools/*", "services/*"]
+# Copier templates (tools/templates/*) are rendered into services/, never installed.
+exclude = ["tools/templates"]
+
+[tool.uv.sources]
+sb-checks = { workspace = true }
+sb-graph = { workspace = true }
+sb-agentkit = { workspace = true }
+sb-kernel = { workspace = true }
+sb-obs = { workspace = true }
+sb-testing = { workspace = true }
+sb-db = { workspace = true }
+sb-messaging = { workspace = true }
+sb-workflows = { workspace = true }
+sb-http = { workspace = true }
+sb-admin = { workspace = true }
+ledger = { workspace = true }
+
+[tool.pytest.ini_options]
+# sb-graph check fails if a member is not under one of these (same for pyright/tach/import-linter).
+testpaths = ["libs", "services", "tools"]
+# -p no:tach: tach's pytest plugin only prints "N tests unaffected" noise; sb-graph drives selection.
+addopts = [
+  "--import-mode=importlib", "--strict-markers", "--strict-config", "-ra", "-p", "no:tach",
+]
+xfail_strict = true
+filterwarnings = ["error"]
+norecursedirs = ["mutants", ".venv", "node_modules", ".hypothesis", ".git", "*.egg", "build", "dist", "__pycache__"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+markers = [
+  "integration: needs Docker/testcontainers or real infrastructure (auto-applied under */integration/*)",
+]
+
+# Lint and type-check config lives in ruff.toml and pyrightconfig.json (human-owned guardrails).

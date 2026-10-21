@@ -1,0 +1,74 @@
+# Package-boundary POLICY (what may depend on what). HUMAN-OWNED: agents must not edit.
+# sb-graph separately checks that pyproject [project].dependencies match real imports.
+#
+# DEVIATION (tach 0.35.1): sb_checks and sb_graph are separately installed/distributed
+# uv workspace packages, so tach resolves an import of one from the other as a
+# third-party (distribution) dependency, not an internal [[modules]] edge — `tach check`
+# alone never flags it, even with depends_on = []. `tach check-external` DOES flag it,
+# because neither member declares the other in its pyproject [project].dependencies.
+# `make contracts` therefore runs both `tach check` (in-package boundaries, circular
+# deps) and `tach check-external` (the real enforcement for this cross-package policy).
+# import-linter's independence contract is the other, tach-independent enforcement of
+# the same "may not depend on each other" policy.
+source_roots = ["tools/checks/src", "tools/graph/src", "tools/agentkit/src", "libs/py/sb_kernel/src", "libs/py/sb_obs/src", "libs/py/sb_testing/src", "libs/py/sb_db/src", "libs/py/sb_messaging/src", "libs/py/sb_workflows/src", "libs/py/sb_http/src", "libs/py/sb_admin/src", "services/ledger/src"]
+exact = true
+forbid_circular_dependencies = true
+
+[[modules]]
+path = "sb_checks"
+depends_on = []
+
+[[modules]]
+path = "sb_graph"
+depends_on = []
+
+[[modules]]
+path = "sb_agentkit"
+depends_on = []
+
+[[modules]]
+path = "sb_kernel"
+depends_on = []
+
+[[modules]]
+path = "sb_obs"
+# sb_kernel is a separate distribution: tach treats it as external (see DEVIATION above);
+# the edge is declared in sb-obs pyproject and enforced by `tach check-external`.
+depends_on = []
+
+[[modules]]
+path = "sb_testing"
+depends_on = []
+
+[[modules]]
+path = "sb_db"
+# sb_kernel is a separate distribution (see DEVIATION above): enforced by `tach check-external`.
+depends_on = []
+
+[[modules]]
+path = "sb_messaging"
+# sb_kernel, sb_db, sb_obs are separate distributions (see DEVIATION above): enforced by
+# `tach check-external`.
+depends_on = []
+
+[[modules]]
+path = "sb_workflows"
+# sb_kernel is a separate distribution (see DEVIATION above): enforced by `tach check-external`.
+depends_on = []
+
+[[modules]]
+path = "sb_http"
+# sb_kernel and sb_obs are separate distributions (see DEVIATION above): enforced by
+# `tach check-external`.
+depends_on = []
+
+[[modules]]
+path = "sb_admin"
+# sb_kernel is a separate distribution (see DEVIATION above): enforced by `tach check-external`.
+depends_on = []
+
+[[modules]]
+path = "ledger"
+# The seven libraries are separate distributions (see DEVIATION above): enforced by
+# `tach check-external`.
+depends_on = []

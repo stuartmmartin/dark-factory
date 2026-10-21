@@ -1,0 +1,11 @@
+"""Wire form of money amounts (C3, D17): a decimal string, never a float or Decimal field.
+
+The pattern is the NUMERIC(38,18) shape (at most 20 integer digits, 18 places).
+`Money.of(value, currency)` still validates the value itself.
+"""
+
+from typing import Annotated
+
+from pydantic import StringConstraints
+
+DecimalStr = Annotated[str, StringConstraints(pattern=r"^-?[0-9]{1,20}(\.[0-9]{1,18})?$")]

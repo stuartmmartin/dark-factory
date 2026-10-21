@@ -1,0 +1,18 @@
+{% from "macros.jinja" import sorted_imports -%}
+"""{{ Class }}'s rules: one `test_R<n>_*` per `R<n>` line of its docstring (T2).
+
+RED by design (T1): the use case raises NotImplementedError, and the test fails until its
+assertion pins the rule's observable effect on the fakes (state, audit, events).
+"""
+
+import pytest
+
+{% call sorted_imports() %}
+from {{ svc }}.application.ports import UowFactory
+from {{ svc }}.application.use_cases import {{ name }}
+{% endcall %}
+
+
+async def test_R1_{{ name }}(uow: UowFactory) -> None:
+    await {{ name }}.{{ Class }}(uow)()
+    pytest.fail("R1: assert the rule's effect here")

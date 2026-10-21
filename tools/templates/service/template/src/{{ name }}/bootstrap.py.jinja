@@ -1,0 +1,118 @@
+{% from "macros.jinja" import sorted_imports -%}
+"""Composition root: builds the container (engine, unit of work, use cases) and the API app.
+
+A consumer handler builds its use case per message around `sb_db.uow.joined(uow)` instead of
+taking it from the container (D13).
+"""
+
+from __future__ import annotations
+
+from collections.abc import AsyncGenerator, Callable
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from importlib.metadata import version
+
+from fastapi import FastAPI
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+
+{% call sorted_imports() %}
+from sb_admin.admin import create_admin
+from sb_admin.auth import DevAdminAuth
+from sb_db.engine import create_engine, session_factory
+from sb_http.app import create_app, mount_admin
+from sb_http.auth import backend_for
+from sb_kernel.clock import Clock, SystemClock
+from {{ name }}.application.use_cases.ping import Ping
+from {{ name }}.infrastructure.models import platform
+from {{ name }}.infrastructure.settings import Settings
+from {{ name }}.infrastructure.uow import Sql{{ Name }}UnitOfWork
+from {{ name }}.interface.admin.acceptors import ACCEPTORS
+from {{ name }}.interface.admin.views import VIEWS
+from {{ name }}.interface.http.routes import router
+{% endcall %}
+
+__all__ = ["Container", "build_api", "build_container"]
+
+__version__ = version("{{ name }}")
+
+
+@dataclass(frozen=True)
+class Container:
+    settings: Settings
+    engine: AsyncEngine
+    sessions: async_sessionmaker[AsyncSession]
+    clock: Clock
+    # A SqlAlchemyUnitOfWork factory: a consumer's `U` is bound to it (D11), and it is also
+    # a valid `UowFactory` for the use cases.
+    uow_factory: Callable[[], Sql{{ Name }}UnitOfWork]
+    ping: Ping
+
+
+def build_container(settings: Settings) -> Container:
+    # The sb_app role, so RLS applies. Never echo=True (D19).
+    engine = create_engine(settings.database_url.get_secret_value())
+    sessions = session_factory(engine)
+    clock = SystemClock()
+
+    def uow_factory() -> Sql{{ Name }}UnitOfWork:
+        return Sql{{ Name }}UnitOfWork(sessions, platform, clock)
+
+    return Container(
+        settings=settings,
+        engine=engine,
+        sessions=sessions,
+        clock=clock,
+        uow_factory=uow_factory,
+        ping=Ping(uow_factory),
+    )
+
+
+def build_api(settings: Settings, container: Container | None = None) -> FastAPI:
+    # First, so prod (oidc, not implemented) fails before any engine is built (D1).
+    auth = backend_for(settings.auth_mode, settings.environment)
+    # The admin is mounted only outside prod (DevAdminAuth raises elsewhere, D8); its credentials
+    # are checked here, before anything is built, because only the API process receives them.
+    admin = settings.admin_credentials() if settings.environment != "prod" else None
+    services = container or build_container(settings)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
+        try:
+            yield
+        finally:
+            await services.engine.dispose()
+
+    async def db_ready() -> bool:  # bounded by create_app's readiness_timeout (2 s)
+        async with services.engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        return True
+
+    # create_app installs RequestContextMiddleware itself (D3).
+    app = create_app(
+        title="{{ name }}",
+        version=__version__,
+        routers=[router],
+        auth=auth,
+        readiness=[db_ready],
+        lifespan=lifespan,
+        expose_docs=settings.environment != "prod",
+    )
+    app.state.container = services
+    if admin is not None:
+        admin_auth = DevAdminAuth(
+            admin.secret_key, admin.username, admin.password, environment=settings.environment
+        )
+        # On the sb_app engine: RLS shows the admin zero rows (D9). Never the migrator URL.
+        mount_admin(
+            app,
+            create_admin(
+                services.engine,
+                title="{{ name }} admin",
+                auth=admin_auth,
+                acceptors=ACCEPTORS,
+                views=VIEWS,
+                mount_path="/admin",
+            ),
+        )
+    return app

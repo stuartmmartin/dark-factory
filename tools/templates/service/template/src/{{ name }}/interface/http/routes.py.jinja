@@ -1,0 +1,39 @@
+{% from "macros.jinja" import sorted_imports -%}
+"""HTTP routes of {{ name }}.
+
+Each route resolves its use case from the container and does nothing else (A8). Errors map to
+problem+json once, in `sb_http.errors`.
+
+The function names are the OpenAPI operationIds (D2) and part of the committed contract
+(`contracts/openapi/{{ name }}.json`): renaming one is an API change.
+"""
+
+from __future__ import annotations
+
+from typing import Protocol, cast
+
+from fastapi import APIRouter, Request
+
+{% call sorted_imports() %}
+from {{ name }}.application.use_cases.ping import Ping
+from {{ name }}.interface.http.schemas import PingOut
+{% endcall %}
+
+router = APIRouter(prefix="/v1")
+
+
+class _UseCases(Protocol):
+    """What the routes need from the bootstrap `Container` (interface cannot import it)."""
+
+    @property
+    def ping(self) -> Ping: ...
+
+
+def _use_cases(request: Request) -> _UseCases:
+    return cast(_UseCases, request.app.state.container)
+
+
+@router.get("/ping")
+async def ping(request: Request) -> PingOut:
+    """Answer "pong" with the caller's tenant id (read-only)."""
+    return PingOut.of(await _use_cases(request).ping())

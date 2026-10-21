@@ -1,0 +1,18 @@
+[project]
+name = "sb-db"
+version = "0.1.0"
+description = "SQLAlchemy async engine, platform tables, RLS/append-only DDL, tenant UoW, audit hash chain, outbox, idempotency."
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  # postgresql-asyncpg pulls the asyncpg driver SQLAlchemy loads from `postgresql+asyncpg://`.
+  "sqlalchemy[asyncio,postgresql-asyncpg]>=2.0.36,<2.2",
+  "alembic>=1.14",
+  "sb-kernel",
+]
+
+[dependency-groups]
+dev = ["sb-testing"]
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"

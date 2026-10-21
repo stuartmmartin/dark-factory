@@ -1,0 +1,20 @@
+[project]
+name = "sb-messaging"
+version = "0.1.0"
+description = "Event envelope, idempotent Kafka publisher, transactional-outbox relay, inbox-deduped consumer (A11)."
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "confluent-kafka>=2.6",
+  "pydantic>=2.9",
+  "sqlalchemy[asyncio]>=2.0.36,<2.2",
+  "sb-kernel",
+  "sb-db",
+  "sb-obs",
+]
+
+[dependency-groups]
+dev = ["sb-testing"]
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"

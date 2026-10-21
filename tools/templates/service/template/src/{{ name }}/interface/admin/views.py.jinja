@@ -1,0 +1,12 @@
+"""SQLAdmin views: read-only by construction (`can_create/edit/delete/export = False`).
+
+D9 (RULING, flagged for a human): the admin runs on the service's `sb_app` engine with no tenant
+set, so FORCE RLS makes every list view show zero rows. Never build the admin on `migrator_url`
+(it bypasses RLS). Add a `ModelView` per table to `VIEWS`.
+"""
+
+from __future__ import annotations
+
+from sqladmin import ModelView
+
+VIEWS: list[type[ModelView]] = []

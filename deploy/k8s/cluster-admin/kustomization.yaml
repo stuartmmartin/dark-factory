@@ -1,0 +1,9 @@
+# Cluster-admin-only manifests (least privilege, Plan 4 Task 9 ruling A). A cluster admin applies
+# these out of band, once per cluster: `kubectl apply -k deploy/k8s/cluster-admin`.
+# deploy.yml never applies them; its credential (KUBECONFIG_B64) is scoped to one namespace,
+# which must already exist with its Pod Security labels. `make k8s-validate` validates this set.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace-dev.yaml
+  - namespace-prod.yaml

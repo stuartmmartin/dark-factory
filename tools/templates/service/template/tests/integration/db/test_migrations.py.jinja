@@ -1,0 +1,88 @@
+{% from "macros.jinja" import sorted_imports -%}
+"""Migrations round-trip (upgrade → downgrade → upgrade), have a single head, and match the models.
+
+Sync tests (D7): Alembic's env.py runs asyncio.run itself.
+"""
+
+import asyncio
+
+from alembic import command
+from alembic.autogenerate import compare_metadata
+from alembic.migration import MigrationContext
+from alembic.script import ScriptDirectory
+from pydantic import SecretStr
+from sqlalchemy import pool
+from sqlalchemy.ext.asyncio import create_async_engine
+from structlog.testing import capture_logs
+
+{% call sorted_imports() %}
+from sb_db.engine import COMMAND_TIMEOUT_SECONDS, CONNECT_TIMEOUT_SECONDS
+from {{ name }}.infrastructure.models import Base
+from {{ name }}.infrastructure.settings import Settings
+from {{ name }}.migrate import alembic_config, migrate
+{% endcall %}
+
+
+async def _diff(url: str) -> list[object]:
+    engine = create_async_engine(
+        url,
+        poolclass=pool.NullPool,
+        connect_args={
+            "timeout": CONNECT_TIMEOUT_SECONDS,
+            "command_timeout": COMMAND_TIMEOUT_SECONDS,
+        },
+    )
+    try:
+        async with engine.connect() as conn:
+            return await conn.run_sync(
+                lambda sync: compare_metadata(MigrationContext.configure(sync), Base.metadata)
+            )
+    finally:
+        await engine.dispose()
+
+
+def test_single_head(
+    {{ name }}_migrator_url: str,
+) -> None:
+    config = alembic_config({{ name }}_migrator_url)
+    assert len(ScriptDirectory.from_config(config).get_heads()) == 1
+
+
+def test_round_trip_and_no_drift(
+    {{ name }}_db: str,
+    {{ name }}_migrator_url: str,
+) -> None:
+    config = alembic_config({{ name }}_migrator_url)
+    command.downgrade(config, "base")  # also proves platform_table_ddl_downgrade (D5)
+    command.upgrade(config, "head")
+    assert asyncio.run(_diff({{ name }}_migrator_url)) == []
+
+
+def test_migrate_upgrades_and_logs_the_head_revision(
+    {{ name }}_db: str,
+    {{ name }}_migrator_url: str,
+) -> None:
+    config = alembic_config({{ name }}_migrator_url)
+    head = ScriptDirectory.from_config(config).get_current_head()
+    settings = Settings(
+        environment="test",
+        auth_mode="dev",
+        database_url=SecretStr({{ name }}_db),
+        migrator_url=SecretStr({{ name }}_migrator_url),
+        # ensure_database only checks that the test database exists (sb_migrator owns it).
+        admin_database_url=SecretStr({{ name }}_migrator_url),
+        database_name="{{ name }}_test",
+        admin_username="admin",
+        admin_password=SecretStr("pw"),
+        admin_secret_key=SecretStr("k" * 32),
+    )
+    with capture_logs() as logs:
+        assert migrate(settings) == head
+    assert [e for e in logs if e["event"] == "{{ name }}.migrated"] == [
+        {
+            "event": "{{ name }}.migrated",
+            "log_level": "info",
+            "revision": head,
+            "database": "{{ name }}_test",
+        }
+    ]

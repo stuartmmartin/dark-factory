@@ -1,0 +1,20 @@
+# PLACEHOLDER CIDRs (192.0.2.0/24 is TEST-NET-1, never routable): egress fails closed until a
+# human replaces them with the managed Postgres, Kafka and Temporal ranges.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ledger-egress
+spec:
+  egress:
+    - to: # Postgres
+        - ipBlock: {cidr: 192.0.2.10/32}
+      ports:
+        - {protocol: TCP, port: 5432}
+    - to: # Kafka
+        - ipBlock: {cidr: 192.0.2.20/32}
+      ports:
+        - {protocol: TCP, port: 9092}
+    - to: # Temporal frontend
+        - ipBlock: {cidr: 192.0.2.30/32}
+      ports:
+        - {protocol: TCP, port: 7233}

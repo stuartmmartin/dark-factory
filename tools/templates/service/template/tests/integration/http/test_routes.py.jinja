@@ -1,0 +1,74 @@
+{% from "macros.jinja" import sorted_imports -%}
+"""The HTTP API end to end: routes, problem+json errors, tenancy, admin (T9).
+
+Every test asserts the status before the body.
+"""
+
+from collections.abc import Callable
+
+import httpx
+import pytest
+from fastapi import FastAPI
+from pydantic import SecretStr
+
+{% call sorted_imports() %}
+from {{ name }}.bootstrap import build_api
+from {{ name }}.infrastructure.settings import Settings
+{% endcall %}
+
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = "pw"  # noqa: S105 - matches conftest.py
+Headers = Callable[..., dict[str, str]]
+
+
+async def test_ping_answers_pong_for_the_callers_tenant(
+    client: httpx.AsyncClient, as_tenant: Headers
+) -> None:
+    response = await client.get("/v1/ping", headers=as_tenant())
+    assert response.status_code == 200
+    assert response.json() == {"message": "pong", "tenant_id": as_tenant()["X-Tenant-Id"]}
+
+
+async def test_missing_tenant_header_is_403(client: httpx.AsyncClient) -> None:
+    response = await client.get("/v1/ping")
+    assert response.status_code == 403
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.json()["code"] == "forbidden"
+
+
+def test_operation_ids_are_the_committed_contract(app: FastAPI) -> None:
+    operation_ids = {
+        operation["operationId"]
+        for methods in app.openapi()["paths"].values()
+        for operation in methods.values()
+    }
+    assert operation_ids == {"ping", "live", "ready"}
+
+
+async def test_docs_are_served_outside_prod(client: httpx.AsyncClient) -> None:
+    response = await client.get("/docs")
+    assert response.status_code == 200
+
+
+async def test_ready_checks_the_database(client: httpx.AsyncClient) -> None:
+    response = await client.get("/health/ready")
+    assert response.status_code == 200
+
+
+async def test_the_admin_is_mounted_outside_prod(client: httpx.AsyncClient) -> None:
+    login = await client.post(
+        "/admin/login", data={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD}
+    )
+    assert login.status_code == 302
+
+
+def test_prod_does_not_start_until_oidc_exists() -> None:
+    """D1: prod uses OIDC, which `backend_for` does not implement, so the app (and with it the
+    admin) cannot be built in prod."""
+    prod = Settings(
+        environment="prod",
+        auth_mode="oidc",
+        database_url=SecretStr("postgresql+asyncpg://sb_app:x@db/app"),
+    )
+    with pytest.raises(NotImplementedError):
+        build_api(prod)

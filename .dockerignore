@@ -1,0 +1,26 @@
+# The build context is the repo root. Keep secrets, local state and caches out of every image.
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+.git
+.github
+.claude
+.superpowers
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+**/.hypothesis
+**/.mutmut-cache
+**/mutants
+**/node_modules
+**/.import_linter_cache
+**/tests
+**/dist
+docs
+deploy
+.DS_Store

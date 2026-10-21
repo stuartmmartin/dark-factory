@@ -1,0 +1,30 @@
+# Root ruff config. Kept out of pyproject.toml so lint strictness is a human-owned guardrail
+# (pre-edit hook + CODEOWNERS) while pyproject.toml stays editable for dependencies.
+line-length = 100
+target-version = "py313"
+src = ["tools/*/src", "libs/py/*/src", "services/*/src"]
+extend-exclude = ["docs/generated", "docs/superpowers"]
+
+[lint]
+select = [
+  "E", "F", "W", "I", "N", "UP", "B", "A", "C4", "DTZ", "T20", "SIM", "RUF", "S",
+  "ARG", "PT", "TID", "ERA", "PLC", "PLE", "PLR", "PLW", "C90",
+]
+ignore = ["PLR0913"]
+
+[lint.mccabe]
+max-complexity = 10
+
+[lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[lint.per-file-ignores]
+# N802: rule tests are named test_R<n>_* by contract (sb-checks use-case-rules).
+# S108: tests use fixed /tmp-style literals as path fixtures, not real temp-file usage.
+"**/tests/**" = ["S101", "PLR2004", "ARG001", "N802", "S404", "S603", "S607", "S108"]
+"**/cli.py" = ["T201"]
+# sb_graph shells out to `git` with fixed argv lists (no shell, no user-controlled executable).
+"tools/graph/src/sb_graph/affected.py" = ["S404", "S603", "S607"]
+"tools/agentkit/src/sb_agentkit/pre_edit.py" = ["S404"]
+"tools/checks/src/sb_checks/doctor.py" = ["S404"]
+"tools/agentkit/src/sb_agentkit/runner.py" = ["S404"]

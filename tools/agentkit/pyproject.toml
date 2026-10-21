@@ -1,0 +1,16 @@
+[project]
+name = "sb-agentkit"
+version = "0.1.0"
+description = "Tested agent scaffolding: Claude Code hook guards, agent-docs linter, CI review triage."
+requires-python = ">=3.13,<3.14"
+dependencies = ["pyyaml>=6"]
+
+[project.scripts]
+sb-agentkit = "sb_agentkit.cli:main"
+
+[dependency-groups]
+dev = ["types-pyyaml>=6"]
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"

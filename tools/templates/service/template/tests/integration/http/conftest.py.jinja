@@ -1,0 +1,71 @@
+{% from "macros.jinja" import sorted_imports -%}
+"""The {{ name }} API over ASGI with dev header auth, on the migrated test database.
+
+`environment` and `auth_mode` have no defaults (D1), so every setting is explicit here. httpx's
+`ASGITransport` does not run the lifespan, so the `app` fixture disposes the engine itself.
+"""
+
+from collections.abc import AsyncIterator, Callable
+from uuid import UUID, uuid4
+
+import httpx
+import pytest
+from fastapi import FastAPI
+from pydantic import SecretStr
+
+{% call sorted_imports() %}
+from {{ name }}.bootstrap import Container, build_api
+from {{ name }}.infrastructure.settings import Settings
+{% endcall %}
+
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = "pw"  # noqa: S105 - dev admin login of the test app
+
+
+@pytest.fixture(scope="session")
+def settings(
+    {{ name }}_db: str,
+) -> Settings:
+    # The API never gets the privileged URLs; only the migrate process does.
+    return Settings(
+        environment="test",
+        auth_mode="dev",
+        database_url=SecretStr({{ name }}_db),
+        admin_username=ADMIN_USERNAME,
+        admin_password=SecretStr(ADMIN_PASSWORD),
+        admin_secret_key=SecretStr("k" * 32),
+    )
+
+
+@pytest.fixture(scope="session")
+async def app(settings: Settings) -> AsyncIterator[FastAPI]:
+    """One app (one engine) per test session (D14)."""
+    api = build_api(settings)
+    container: Container = api.state.container
+    try:
+        yield api
+    finally:
+        await container.engine.dispose()
+
+
+@pytest.fixture
+async def client(app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+
+
+@pytest.fixture
+def tenant() -> UUID:
+    """A fresh tenant per test: never rely on rows from another test."""
+    return uuid4()
+
+
+@pytest.fixture
+def as_tenant(tenant: UUID) -> Callable[..., dict[str, str]]:
+    """Dev-auth headers for `tenant` (or another), plus any extra headers."""
+
+    def headers(other: UUID | None = None, **extra: str) -> dict[str, str]:
+        return {"X-Tenant-Id": str(other or tenant), "X-Actor": "tester", **extra}
+
+    return headers

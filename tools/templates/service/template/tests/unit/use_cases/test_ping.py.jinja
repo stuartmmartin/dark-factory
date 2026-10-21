@@ -1,0 +1,23 @@
+{% from "macros.jinja" import sorted_imports -%}
+"""Ping's rules (one `test_R<n>_*` per `R<n>` line of its docstring, T2)."""
+
+{% call sorted_imports() %}
+import {{ name }}_fakes as fakes  # type: ignore[import-not-found]
+{% endcall %}
+
+{% call sorted_imports() %}
+from sb_kernel.context import RequestContext
+from {{ name }}.application.ports import UowFactory
+from {{ name }}.application.use_cases.ping import Ping
+{% endcall %}
+
+
+async def test_R1_ping_returns_pong_and_the_current_tenant(
+    uow: UowFactory, state: fakes.{{ Name }}State, tenant_context: RequestContext
+) -> None:
+    result = await Ping(uow)()
+
+    assert result.message == "pong"
+    assert result.tenant_id == tenant_context.tenant_id
+    assert state.commits == 0  # read-only
+    assert state.audit == []

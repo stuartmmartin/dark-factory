@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ledger-config
+data:
+  # Required (D1). oidc is not implemented yet: the API fails closed (see kustomization.yaml).
+  LEDGER_ENVIRONMENT: prod
+  LEDGER_AUTH_MODE: oidc

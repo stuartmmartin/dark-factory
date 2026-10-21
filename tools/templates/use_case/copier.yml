@@ -1,0 +1,27 @@
+# Copier template for a new use case: `make new-use-case SVC=<svc> NAME=<verb_noun>` renders it
+# into services/<svc>. It writes the use case module (one class, one `__call__`, an `R1:` line
+# to fill in) and its rule test, which fails by design until the rule is implemented (T1).
+_subdirectory: template
+_templates_suffix: .jinja
+_min_copier_version: "9.4"
+
+svc:
+  type: str
+  help: The service package (a directory under services/)
+  validator: >-
+    {% if not (svc | regex_search('^[a-z][a-z0-9_]*$')) %}svc must match ^[a-z][a-z0-9_]*$
+    {%- elif svc | length > 24 %}svc must be at most 24 characters{% endif %}
+
+name:
+  type: str
+  help: The use case module in verb_noun form, e.g. close_account
+  # At most 32 characters: the templates keep every line within ruff's 100 at that length.
+  validator: >-
+    {% if not (name | regex_search('^[a-z][a-z0-9_]*$')) %}name must match ^[a-z][a-z0-9_]*$
+    {%- elif name | length > 32 %}name must be at most 32 characters{% endif %}
+
+# Derived (not asked): the use case class.
+Class:
+  type: str
+  default: "{{ name.split('_') | map('capitalize') | join('') }}"
+  when: false

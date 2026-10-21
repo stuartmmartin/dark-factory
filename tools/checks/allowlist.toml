@@ -1,0 +1,9 @@
+# Justified exemptions from sb-checks. HUMAN-OWNED: agents must not edit this file.
+# Each entry: check id, repo-relative path, and a reason (>= 10 chars, cite an ADR/ticket).
+# Entries that no longer excuse a violation fail the run — delete them when the debt is paid.
+#
+# [[allow]]
+# check = "no-float"
+# path = "services/example/src/example/domain/thing.py"
+# reason = "why this is acceptable, and the ADR or ticket tracking its removal"
+allow = []

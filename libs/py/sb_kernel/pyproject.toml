@@ -1,0 +1,17 @@
+[project]
+name = "sb-kernel"
+version = "0.1.0"
+description = "Pure core types: Money, errors, ids, Clock, RequestContext, events, unit-of-work protocols."
+requires-python = ">=3.13,<3.14"
+dependencies = ["pydantic>=2.9"]
+
+[dependency-groups]
+dev = ["hypothesis>=6.115"]
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"
+
+[tool.mutmut]
+source_paths = ["src/sb_kernel/"]
+pytest_add_cli_args_test_selection = ["tests/unit/"]

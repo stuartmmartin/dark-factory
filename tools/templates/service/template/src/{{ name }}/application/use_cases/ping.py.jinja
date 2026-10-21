@@ -1,0 +1,27 @@
+{% from "macros.jinja" import sorted_imports -%}
+"""Answer a ping for the current tenant.
+
+Business rules:
+    R1: Ping returns "pong" and the current tenant id.
+
+Read-only: no commit, audit or event. The unit of work rolls back on exit. Ping exists so a new
+service passes `make check` before any domain code is written; delete it (with its route and
+test) once the first real use case lands.
+"""
+
+from __future__ import annotations
+
+{% call sorted_imports() %}
+from sb_kernel.context import current_context
+from {{ name }}.application.dto import PingResult
+from {{ name }}.application.ports import UowFactory
+{% endcall %}
+
+
+class Ping:
+    def __init__(self, uow: UowFactory) -> None:
+        self._uow = uow
+
+    async def __call__(self) -> PingResult:
+        async with self._uow():  # opens the tenant-scoped transaction (RLS), then rolls back
+            return PingResult(tenant_id=current_context().tenant_id)  # R1

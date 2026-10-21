@@ -1,0 +1,17 @@
+"""Commands, queries and results of the use cases (frozen, transport-neutral)."""
+
+from __future__ import annotations
+
+from typing import Literal
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict
+
+
+class _Frozen(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+
+class PingResult(_Frozen):
+    message: Literal["pong"] = "pong"
+    tenant_id: UUID

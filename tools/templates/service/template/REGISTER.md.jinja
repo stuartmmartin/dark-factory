@@ -1,0 +1,218 @@
+# Register {{ name }}
+
+`make new-service` cannot finish the job. `tach.toml` and `.importlinter` are human-owned
+guardrails (A15): the agent hooks block edits to them, so a human pastes those snippets and
+CODEOWNERS reviews them. `compose/services.yml`, `.env.example` and `docs/CONTEXT-MAP.md`
+are ordinary files an agent may edit. Until the boundary snippets are in, `make check` fails.
+`sb-graph check` checks tach `source_roots`, import-linter `root_packages`, pyright `include`,
+pytest `testpaths` and complete canonical service contracts: CLEAN layers,
+pure cores, library/service direction, test-only imports and service independence. Partial
+contracts and import exemptions fail; import-linter separately checks actual dependencies.
+Include every current non-kernel library in pure-core restrictions, extending the snippet below
+if the workspace has gained libraries. OpenAPI service discovery is automatic.
+Delete this file once everything is pasted and `make check` passes.
+
+### tach.toml
+
+Append `"services/{{ name }}/src"` to `source_roots`:
+
+```toml
+"services/{{ name }}/src"
+```
+
+Then add the module:
+
+```toml
+[[modules]]
+path = "{{ name }}"
+# The platform libraries are separate distributions: enforced by `tach check-external`.
+depends_on = []
+```
+
+### .importlinter
+
+Add `{{ name }}` to `root_packages` (in `[importlinter]`) and to the `source_modules` of
+`testing-only-in-tests`. For A10, add `{{ name }}` to `forbidden_modules` of `libs-never-import-services`.
+Then append these contracts:
+
+```ini
+[importlinter:contract:{{ name }}-layers]
+name = {{ name }} CLEAN layers (A1)
+type = layers
+containers =
+    {{ name }}
+layers =
+    main | (worker) | (consumer) | (seed)
+    bootstrap | migrate
+    interface
+    infrastructure
+    application
+    domain
+
+[importlinter:contract:{{ name }}-pure-core]
+name = {{ name }} domain/application import no frameworks or adapters (A2)
+type = forbidden
+source_modules =
+    {{ name }}.domain
+    {{ name }}.application
+forbidden_modules =
+    sqlalchemy
+    fastapi
+    starlette
+    sqladmin
+    temporalio
+    confluent_kafka
+    httpx
+    pydantic_settings
+    structlog
+    sb_db
+    sb_messaging
+    sb_workflows
+    sb_http
+    sb_admin
+    sb_obs
+    sb_testing
+```
+
+### Services never import services
+
+A9, in `.importlinter`.
+{% if not peers.split() -%}
+This is the first service: nothing to add yet. The next service's `REGISTER.md` creates the
+`services-independent` contract.
+{% elif independence_contract -%}
+The contract exists: add `{{ name }}` to `modules` of `services-independent`:
+
+```ini
+    {{ name }}
+```
+{% else -%}
+Append this contract (it lists every existing service and `{{ name }}`):
+
+```ini
+[importlinter:contract:services-independent]
+name = Services never import each other (A9)
+type = independence
+modules =
+{%- for peer in peers.split() %}
+    {{ peer }}
+{%- endfor %}
+    {{ name }}
+```
+{% endif %}
+### pyrightconfig.json and pyproject.toml
+
+Nothing to paste: pyright's `include` has `services`, its `strict` globs
+(`services/*/src/*/domain`, `services/*/src/*/application`) already cover this service, and
+pytest's `testpaths` has `services`.
+
+### compose/services.yml
+
+Paste these anchors above `services:`:
+
+```yaml
+x-{{ name }}-build: &{{ name }}-build
+  context: ..
+  dockerfile: services/{{ name }}/Dockerfile
+  target: dev
+  args: {SERVICE: {{ name }}}
+
+x-{{ name }}-environment: &{{ name }}-environment
+  SERVICE: {{ name }}
+  # Required, no defaults (D1): dev auth and the admin exist only in local/dev/test/ci.
+  {{ NAME }}_ENVIRONMENT: dev
+  {{ NAME }}_AUTH_MODE: ${SB_AUTH_MODE:?set SB_AUTH_MODE in .env (see .env.example)}
+  # The app processes get only the sb_app URL (RLS applies); the privileged URLs are given to
+  # {{ name }}-migrate alone.
+  {{ NAME }}_DATABASE_URL: postgresql+asyncpg://sb_app:${SB_APP_PASSWORD:?set SB_APP_PASSWORD in .env (see .env.example)}@postgres:5432/{{ name }}
+  {{ NAME }}_DATABASE_NAME: {{ name }}
+  {{ NAME }}_KAFKA_BOOTSTRAP: kafka:29092
+  {{ NAME }}_TEMPORAL_TARGET: temporal:7233
+  {{ NAME }}_TEMPORAL_NAMESPACE: default
+  {{ NAME }}_TASK_QUEUE: {{ name }}
+  {{ NAME }}_LOG_LEVEL: INFO
+
+x-{{ name }}-volumes: &{{ name }}-volumes
+  - ../services/{{ name }}/src:/repo/services/{{ name }}/src
+  - ../services/{{ name }}/migrations:/repo/services/{{ name }}/migrations
+  - ../services/{{ name }}/alembic.ini:/repo/services/{{ name }}/alembic.ini:ro
+  - ../libs/py:/repo/libs/py
+```
+
+and these under `services:` (the `x-infra-healthy` anchor already exists):
+
+```yaml
+  {{ name }}-migrate:
+    profiles: ["{{ name }}-migrate"]
+    build: *{{ name }}-build
+    environment:
+      <<: *{{ name }}-environment
+      # The only process given the BYPASSRLS migrator and the database-creating admin URLs.
+      {{ NAME }}_MIGRATOR_URL: postgresql+asyncpg://sb_migrator:${SB_MIGRATOR_PASSWORD:?set SB_MIGRATOR_PASSWORD in .env (see .env.example)}@postgres:5432/{{ name }}
+      {{ NAME }}_ADMIN_DATABASE_URL: postgresql+asyncpg://sb_admin:${SB_PG_ADMIN_PASSWORD:?set SB_PG_ADMIN_PASSWORD in .env (see .env.example)}@postgres:5432/postgres
+    volumes: *{{ name }}-volumes
+    command: ["python", "-m", "{{ name }}.migrate"]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  {{ name }}-api:
+    profiles: ["{{ name }}"]
+    build: *{{ name }}-build
+    environment:
+      <<: *{{ name }}-environment
+      # D8: SB_ADMIN_* map to {{ NAME }}_ADMIN_*; the secret must be at least 32 characters.
+      # Only the API mounts the admin, so only it gets them (build_api fails fast without).
+      {{ NAME }}_ADMIN_USERNAME: ${SB_ADMIN_USERNAME:?set SB_ADMIN_USERNAME in .env (see .env.example)}
+      {{ NAME }}_ADMIN_PASSWORD: ${SB_ADMIN_PASSWORD:?set SB_ADMIN_PASSWORD in .env (see .env.example)}
+      {{ NAME }}_ADMIN_SECRET_KEY: ${SB_ADMIN_SECRET_KEY:?set SB_ADMIN_SECRET_KEY (32+ chars) in .env (see .env.example)}
+    volumes: *{{ name }}-volumes
+    # uvicorn with log_config=None and reload dirs services/{{ name }}/src and libs/py (D19).
+    command: ["python", "-m", "{{ name }}.main", "--reload"]
+    ports: ["127.0.0.1:${SB_{{ NAME }}_API_PORT:-{{ api_port }}}:8000"]
+    depends_on: *infra-healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3).status==200 else 1)"
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 10s
+```
+
+A worker or consumer process is added with its seam (the `temporal-workflow` and `kafka-event`
+skills), in the same shape as the reference service's. Add `SB_{{ NAME }}_API_PORT={{ api_port }}`
+to `.env.example` next to the other ports.
+
+Port {{ api_port }} is `NEXT_API_PORT` in `mk/scaffold.mk`: one above the highest API port
+already in `compose/services.yml`. Two services generated before either is registered get the
+same port; give the second one the next number here and in its `CLAUDE.md`.
+
+### OpenAPI
+
+Service discovery uses the workspace graph. Run `make openapi` and commit
+`contracts/openapi/{{ name }}.json`.
+
+### docs/CONTEXT-MAP.md
+
+Add a row for `{{ name }}` pointing at `services/{{ name }}/CONTEXT.md`.
+
+### Then
+
+```sh
+uv sync --all-packages
+make graph
+make check
+```
+
+Commit `docs/generated/` and `uv.lock` with the service. Kubernetes manifests
+(`deploy/k8s/{{ kebab }}/`) come before the first deploy: copy the reference service's tree and
+rename its names and `{{ NAME }}_*` variables. Kubernetes names must be DNS labels (no `_`), so
+the k8s directory, every resource name and the image use the hyphenated form `{{ kebab }}`
+(`{{ kebab }}-api`, `{{ kebab }}-migrate`, `{{ kebab }}-config`,
+`ghcr.io/<owner>/dark-factory-{{ kebab }}`, label `app.kubernetes.io/name: {{ kebab }}`), while the
+Python package, the service directory, the compose names and the env prefix keep `{{ name }}`.
+`images.yml` builds `services/{{ name }}/Dockerfile` with `SERVICE={{ name }}`; `deploy.yml`
+accepts `{{ name }}` or `{{ kebab }}` and deploys `deploy/k8s/{{ kebab }}/`.

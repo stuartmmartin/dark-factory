@@ -1,0 +1,7 @@
+"""SQL implementations of the {{ name }} repository ports (`application/ports.py`).
+
+RLS scopes every read to the session's tenant (A13). A write that names a tenant passes it
+explicitly; RLS `WITH CHECK` rejects a row whose `tenant_id` is not the session's. Map a
+duplicate key to `sb_kernel.errors.Conflict` with `ON CONFLICT DO NOTHING ... RETURNING`
+rather than catching the IntegrityError: a failed statement aborts the whole transaction.
+"""

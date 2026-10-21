@@ -1,0 +1,9 @@
+# Deny all ingress and egress for every pod in the namespace. Each service opens only what it
+# needs with its own NetworkPolicy (NetworkPolicies are additive allow-lists).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]

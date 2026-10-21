@@ -1,0 +1,37 @@
+# Ledger, dev cluster. Dev auth (X-Tenant-Id header) and the SQLAdmin are enabled here, so the
+# ledger-api Deployment (only it: the admin is mounted by the API alone) also gets the
+# ledger-admin-secrets Secret with LEDGER_ADMIN_USERNAME / _PASSWORD / _SECRET_KEY (32+ chars).
+# ledger-secrets carries only LEDGER_DATABASE_URL. The namespace is created by a cluster admin
+# (deploy/k8s/cluster-admin/), not by this overlay.
+# The committed tag `latest-dev` moves, hence imagePullPolicy Always; deploy.yml replaces it
+# with the image digest resolved from the dispatched SHA.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: dark-factory-dev
+resources:
+  - ../../base
+images:
+  - name: ghcr.io/stuartmmartin/dark-factory-ledger
+    newTag: latest-dev
+replicas:
+  - {name: ledger-api, count: 1}
+  - {name: ledger-worker, count: 1}
+  - {name: ledger-consumer, count: 1}
+patches:
+  - path: configmap.yaml
+  - path: networkpolicy-egress.yaml
+  - target: {kind: Deployment}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Always
+  - target: {kind: Deployment, name: ledger-api}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/envFrom/-
+        value: {secretRef: {name: ledger-admin-secrets}}
+  - target: {kind: Job}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Always

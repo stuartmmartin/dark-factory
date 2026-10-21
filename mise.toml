@@ -1,0 +1,6 @@
+[tools]
+python = "3.13"
+uv = "0.12"
+gitleaks = "8"
+kustomize = "5.8"
+kubeconform = "0.7"

@@ -1,0 +1,125 @@
+name: images
+
+# Builds each affected service's prod image (the Dockerfile's `prod` target, as-is) and pushes
+# ghcr.io/<owner>/dark-factory-<svc>:<sha>, where <svc> is the hyphenated name (`demo_svc` ->
+# `demo-svc`, sb-graph's normalized `name`; the same name as deploy/k8s/<svc>/) (and :latest-dev on a push to main). deploy.yml resolves
+# a pushed <sha> to its digest and deploys by digest. Only main is ever built and pushed: every
+# job requires refs/heads/main, including a manual run (workflow_dispatch from another branch
+# does nothing), so no unreviewed branch can publish an image.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  UV_LOCKED: "1"
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  affected:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.affected.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+      - run: uv sync --all-packages --locked
+      # Services only (members under services/). A push compares with the commit before the
+      # push (all of its commits, not just HEAD~1); a manual run, or a push with no usable
+      # `before` (new branch, force push), builds every service.
+      - id: affected
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = "push" ] && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            all=$(uv run sb-graph affected --base "$BEFORE" --no-worktree --format json)
+          else
+            all=$(uv run sb-graph members --format json)
+          fi
+          matrix=$(printf '%s' "$all" | jq -c '{include: [.include[] | select(.path | startswith("services/"))]}')
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: affected
+    if: ${{ github.ref == 'refs/heads/main' && fromJSON(needs.affected.outputs.matrix).include[0] != null }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # OIDC token for the Sigstore signing certificate (provenance)
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.affected.outputs.matrix) }}
+    name: build (${{ matrix.name }})
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      # :<sha> always; the moving :latest-dev tag only on a push to main (not a manual rebuild).
+      - id: image
+        env:
+          OWNER: ${{ github.repository_owner }}
+          SERVICE: ${{ matrix.name }}
+          EVENT_NAME: ${{ github.event_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          name="ghcr.io/${OWNER,,}/dark-factory-${SERVICE}"
+          {
+            echo "name=$name"
+            echo "tags<<EOF"
+            echo "$name:$SHA"
+            if [ "$EVENT_NAME" = "push" ]; then echo "$name:latest-dev"; fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          # The member's real directory and its Python package (both keep `_`); the image
+          # name above uses the hyphenated `matrix.name`, like deploy/k8s/<name>/.
+          file: ${{ matrix.path }}/Dockerfile
+          target: prod
+          build-args: SERVICE=${{ matrix.import_name }}
+          push: true
+          tags: ${{ steps.image.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+      # SLSA build provenance for the pushed digest, signed with this workflow's identity (built
+      # from refs/heads/main at github.sha). deploy.yml verifies it before deploying, so a tag
+      # overwritten by any other workflow or ref is refused even though tags are mutable.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      # Record the pushed digest (deploy.yml resolves <sha> to the same digest from the registry).
+      - name: Record digest
+        env:
+          NAME: ${{ steps.image.outputs.name }}
+          SHA: ${{ github.sha }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          echo "### ${NAME}:${SHA}" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`${NAME}@${DIGEST}\`" >> "$GITHUB_STEP_SUMMARY"

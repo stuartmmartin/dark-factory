@@ -1,0 +1,11 @@
+"""SQLAdmin acceptors: humans verify the service's pure policies by hand (A5).
+
+Add one `sb_admin.acceptor.Acceptor` per policy in `application/policies/` (see the
+admin-acceptor skill).
+"""
+
+from __future__ import annotations
+
+from sb_admin.acceptor import Acceptor
+
+ACCEPTORS: list[Acceptor] = []

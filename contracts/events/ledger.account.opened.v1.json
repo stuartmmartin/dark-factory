@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dark-factory.example/contracts/events/ledger.account.opened.v1.json",
+  "title": "ledger.account.opened v1",
+  "description": "An account was opened for the envelope's tenant. The payload carries no account name (PII); consumers that need it read the account.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["account_id", "currency"],
+  "properties": {
+    "account_id": {
+      "description": "The opened account's id (canonical lowercase UUID); also the partition key.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "currency": {
+      "description": "ISO 4217 currency code of the account.",
+      "type": "string",
+      "pattern": "^[A-Z]{3}$"
+    }
+  }
+}

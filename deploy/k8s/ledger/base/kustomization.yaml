@@ -1,0 +1,20 @@
+# Ledger base: the API, the Temporal worker, the Kafka consumer (+ outbox relay), the migrate Job,
+# the ConfigMap and the ledger NetworkPolicies. Not deployable on its own: an overlay sets the
+# namespace, LEDGER_ENVIRONMENT / LEDGER_AUTH_MODE (required, D1), replicas, resources, the
+# image tag and the NetworkPolicy destinations. Secrets are referenced, never stored here:
+#   ledger-secrets          LEDGER_DATABASE_URL (sb_app)
+#   ledger-admin-secrets    LEDGER_ADMIN_* (dev overlay only, the ledger-api Deployment only)
+#   ledger-migrate-secrets  LEDGER_MIGRATOR_URL, LEDGER_ADMIN_DATABASE_URL (the migrate Job only)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+  - configmap.yaml
+  - deployment-api.yaml
+  - deployment-worker.yaml
+  - deployment-consumer.yaml
+  - service.yaml
+  - job-migrate.yaml
+  - networkpolicy-api-ingress.yaml
+  - networkpolicy-egress-dns.yaml
+  - networkpolicy-egress.yaml

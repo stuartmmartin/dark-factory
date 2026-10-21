@@ -1,0 +1,37 @@
+{% extends "sqladmin/layout.html" %}
+{% block content %}
+<div class="col-12">
+  <div class="card">
+    <div class="card-header"><h3 class="card-title">{{ acceptor.title }}</h3></div>
+    <div class="card-body">
+      {% if acceptor.description %}<p>{{ acceptor.description }}</p>{% endif %}
+      {% if errors %}
+      <div class="alert alert-danger" role="alert">
+        <ul class="mb-0">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+      </div>
+      {% endif %}
+      <form method="post">
+        {% for f in fields %}
+        <div class="mb-3">
+          <label class="form-label" for="{{ f.name }}">{{ f.label }}</label>
+          <input class="form-control" type="text" id="{{ f.name }}" name="{{ f.name }}" value="{{ f.value }}">
+          {% if f.help %}<div class="form-text">{{ f.help }}</div>{% endif %}
+        </div>
+        {% endfor %}
+        <button type="submit" class="btn btn-primary">Run</button>
+      </form>
+    </div>
+    {% if result is not none %}
+    <div class="card-footer">
+      <h4>Result</h4>
+      <table class="table table-sm">
+        <tbody>
+          {% for k, v in result.items() %}<tr><th>{{ k }}</th><td>{{ v }}</td></tr>{% endfor %}
+          <tr><th>version</th><td>{{ acceptor.version }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

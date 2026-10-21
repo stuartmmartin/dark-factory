@@ -1,0 +1,36 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+  - repo: local
+    hooks:
+      # gitleaks must be on PATH: `mise install` + `mise activate` (mise.toml pins it),
+      # or `brew install gitleaks`.
+      - id: gitleaks
+        name: gitleaks (staged changes; needs gitleaks on PATH via mise or brew)
+        entry: gitleaks git --pre-commit --staged --redact --verbose
+        language: system
+        pass_filenames: false
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --fix
+        language: system
+        types: [python]
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types: [python]
+      - id: graph-check
+        name: build graph up to date
+        entry: uv run sb-graph check
+        language: system
+        pass_filenames: false
+        files: '(pyproject\.toml|pyrightconfig\.json|\.py)$|^docs/generated/'

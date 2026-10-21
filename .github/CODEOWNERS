@@ -1,0 +1,31 @@
+# Default owners
+*                                   @stuartmmartin
+
+# Owner review, but agents may edit these in daily work
+/AGENTS.md                          @stuartmmartin
+/CLAUDE.md                          @stuartmmartin
+/.claude/                           @stuartmmartin
+/pyproject.toml                     @stuartmmartin
+/tools/checks/                      @stuartmmartin
+/Makefile                           @stuartmmartin
+/mk/                                @stuartmmartin
+/docs/adr/                         @stuartmmartin
+
+# Human-owned guardrails: agents are blocked from editing these (sb_agentkit.guardrails; a parity
+# test keeps this section and GUARDRAIL_PATTERNS in step). Changes need an owner's review.
+/tach.toml                          @stuartmmartin
+/.importlinter                      @stuartmmartin
+/tools/checks/allowlist.toml        @stuartmmartin
+/tools/checks/src/                  @stuartmmartin
+/ruff.toml                          @stuartmmartin
+/.coveragerc                        @stuartmmartin
+/pyrightconfig.json                 @stuartmmartin
+/conftest.py                        @stuartmmartin
+/.pre-commit-config.yaml            @stuartmmartin
+/.claude/settings.json              @stuartmmartin
+/.claude/settings.local.json        @stuartmmartin
+/.claude/skills/code-review/        @stuartmmartin
+/.claude/agents/                    @stuartmmartin
+/tools/agentkit/                    @stuartmmartin
+/.github/                           @stuartmmartin
+/docs/conventions/                  @stuartmmartin

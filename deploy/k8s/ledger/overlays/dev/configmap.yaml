@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ledger-config
+data:
+  # Required (D1). Dev auth is allowed only in local/dev/test/ci.
+  LEDGER_ENVIRONMENT: dev
+  LEDGER_AUTH_MODE: dev
+  LEDGER_LOG_LEVEL: DEBUG

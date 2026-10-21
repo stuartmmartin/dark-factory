@@ -1,0 +1,19 @@
+[project]
+name = "sb-http"
+version = "0.1.0"
+description = "FastAPI app factory, problem+json error mapping, request-context auth middleware, health routes, idempotency key."
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "fastapi>=0.115",
+  "starlette>=0.40",
+  "pydantic>=2.9",
+  "sb-kernel",
+  "sb-obs",
+]
+
+[dependency-groups]
+dev = ["httpx>=0.28", "sb-testing"]
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"

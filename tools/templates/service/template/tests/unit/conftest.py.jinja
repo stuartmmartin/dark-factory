@@ -1,0 +1,33 @@
+{% from "macros.jinja" import sorted_imports -%}
+from collections.abc import Iterator
+from uuid import UUID
+
+{% call sorted_imports() %}
+import pytest
+import {{ name }}_fakes as fakes  # type: ignore[import-not-found]
+{% endcall %}
+
+{% call sorted_imports() %}
+from sb_kernel.context import RequestContext, use_context
+from {{ name }}.application.ports import UowFactory
+{% endcall %}
+
+TENANT = UUID(int=0xF00D)
+
+
+@pytest.fixture
+def state() -> fakes.{{ Name }}State:
+    return fakes.{{ Name }}State()
+
+
+@pytest.fixture
+def uow(state: fakes.{{ Name }}State) -> UowFactory:
+    # A new single-use unit of work per call, sharing committed state (D14).
+    return fakes.fake_factory(state)
+
+
+@pytest.fixture(autouse=True)
+def tenant_context() -> Iterator[RequestContext]:
+    ctx = RequestContext(tenant_id=TENANT, actor="tester", request_id="req-1")
+    with use_context(ctx):
+        yield ctx

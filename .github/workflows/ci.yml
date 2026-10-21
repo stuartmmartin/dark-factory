@@ -1,0 +1,220 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Never relock in CI: a stale uv.lock fails `uv sync` and every `uv run`.
+env:
+  UV_LOCKED: "1"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+      - run: uv sync --all-packages --locked
+      - run: make secrets-check
+      - run: make lint
+      - run: make contracts
+      - run: make graph-check
+
+  typecheck:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+      - run: uv sync --all-packages --locked
+      - run: make typecheck
+
+  affected:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.affected.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+      - run: uv sync --all-packages --locked
+      - id: affected
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            matrix=$(uv run sb-graph affected --base "origin/$BASE_REF" --no-worktree --format json)
+          else
+            matrix=$(uv run sb-graph members --format json)
+          fi
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: affected
+    if: ${{ fromJSON(needs.affected.outputs.matrix).include[0] != null }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.affected.outputs.matrix) }}
+    name: test (${{ matrix.name }})
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+      - run: uv sync --all-packages --locked
+      # Integration tests start real containers (testcontainers); fail early if Docker is absent.
+      - run: docker version
+      - env:
+          PKG: ${{ matrix.path }}
+        run: make test PKG="$PKG"
+
+  coverage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+      - run: uv sync --all-packages --locked
+      - run: make coverage
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: logic-coverage
+          path: coverage.xml
+          if-no-files-found: error
+
+  # Every affected service with migrations: round-trip, single head, no model drift. On a PR,
+  # also refuse edits to (or deletions of) revisions that already exist on the base branch:
+  # merged migrations are immutable, write a new revision instead. --no-renames makes a rename
+  # show as a deletion, so it is caught too.
+  migrations:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+      - run: uv sync --all-packages --locked
+      - name: Merged migrations are unchanged
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          changed=$(git diff --no-renames --diff-filter=MD --name-only "origin/$BASE_REF...HEAD" -- 'services/*/migrations/versions/*')
+          if [ -n "$changed" ]; then
+            echo "::error::merged migrations were modified or deleted; add a new revision instead:"
+            echo "$changed"
+            exit 1
+          fi
+      - run: docker version
+      - name: db-check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            paths=$(uv run sb-graph affected --base "origin/$BASE_REF" --no-worktree --format paths)
+          else
+            paths=$(uv run sb-graph members --format paths)
+          fi
+          for p in $paths; do
+            case "$p" in services/*) ;; *) continue ;; esac
+            if [ -d "$p/migrations" ]; then
+              make db-check SVC="$(basename "$p")"
+            fi
+          done
+
+  openapi-drift:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+      - run: uv sync --all-packages --locked
+      - run: make openapi-check
+
+  # Known vulnerabilities in the locked third-party dependencies (workspace members are not on
+  # PyPI, so they are left out). Hashes let pip-audit skip its own pip resolution.
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+      - run: make audit
+
+  k8s:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+      - run: make k8s-validate
+
+  # Runs docs/environment_setup.md for real on a clean runner: every `sh env-setup` block, in
+  # order (bootstrap, .env, doctor, up infra, up ledger, health check, seed, unit tests, down).
+  # If the doc stops working, this job fails. It runs on a push to main, and on a PR only when
+  # something the doc depends on changed; otherwise it finishes at once (ci-ok needs it either way).
+  env-setup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          run=true
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            changed=$(git diff --name-only "origin/$BASE_REF...HEAD")
+            if ! printf '%s\n' "$changed" | grep -Eq '^(docs/environment_setup\.md|compose/|mk/|Makefile$|mise\.toml$|uv\.lock$|contracts/events/|services/|libs/py/|tools/checks/|\.github/workflows/ci\.yml$|\.env\.example$|\.dockerignore$)'; then
+              run=false
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "env-setup runs: $run"
+      - if: ${{ steps.scope.outputs.run == 'true' }}
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+      - if: ${{ steps.scope.outputs.run == 'true' }}
+        run: uv sync --all-packages --locked
+      - if: ${{ steps.scope.outputs.run == 'true' }}
+        run: docker version
+      - if: ${{ steps.scope.outputs.run == 'true' }}
+        run: uv run sb-checks doc-commands docs/environment_setup.md --run
+      # The doc ends with `make down`; this covers a run that failed half way.
+      - if: ${{ always() && steps.scope.outputs.run == 'true' }}
+        run: make down
+
+  ci-ok:
+    if: ${{ always() }}
+    needs: [preflight, typecheck, affected, test, coverage, migrations, openapi-drift, audit, k8s, env-setup]
+    runs-on: ubuntu-24.04
+    steps:
+      - if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
+      - run: echo "all required checks passed"

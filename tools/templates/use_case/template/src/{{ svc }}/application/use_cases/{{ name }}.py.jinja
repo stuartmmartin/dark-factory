@@ -1,0 +1,23 @@
+"""<What this use case does, for the current tenant, in one line.>
+
+Business rules:
+    R1: <state the first business rule>
+
+Write every rule as an `R<n>:` line first, then one failing `test_R<n>_*` per rule, then the
+code (T1, A4). Writes go through one `async with self._uow() as uow:` ending in
+`await uow.commit()`; abort by raising, never by returning early (D13). A retried write takes
+an idempotency key and follows the reference service's `OpenAccount` (D15).
+"""
+
+from __future__ import annotations
+
+from {{ svc }}.application.ports import UowFactory
+
+
+class {{ Class }}:
+    def __init__(self, uow: UowFactory) -> None:
+        self._uow = uow
+
+    async def __call__(self) -> None:
+        # Take a command from application/dto.py and return a result DTO from there too.
+        raise NotImplementedError("R1 is not implemented yet")

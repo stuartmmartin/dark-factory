@@ -1,0 +1,10 @@
+[project]
+name = "sb-obs"
+version = "0.1.0"
+description = "Structured JSON logging with request context and PII/secret redaction."
+requires-python = ">=3.13,<3.14"
+dependencies = ["structlog>=24", "pydantic>=2.9", "sb-kernel"]
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"

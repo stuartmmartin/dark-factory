@@ -1,0 +1,14 @@
+# Applied by a cluster admin only, never by deploy.yml (whose credential is namespace-scoped
+# and cannot create Namespaces). Pod Security Standard "restricted" is enforced (and warned and
+# audited) on every pod in the namespace; the ledger pods are built to pass it (non-root,
+# seccomp RuntimeDefault, no privilege escalation, all capabilities dropped).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dark-factory-dev
+  labels:
+    app.kubernetes.io/part-of: dark-factory
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted

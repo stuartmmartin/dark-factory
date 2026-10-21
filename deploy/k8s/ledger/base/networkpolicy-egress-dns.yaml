@@ -1,0 +1,21 @@
+# DNS to kube-dns, for every ledger pod.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ledger-egress-dns
+  labels:
+    app.kubernetes.io/name: ledger
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ledger
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}

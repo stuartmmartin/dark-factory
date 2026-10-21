@@ -1,0 +1,31 @@
+"""`build_api` fails fast at API startup: the admin credentials are checked before anything is
+built, because only the API process mounts the admin (and only outside prod)."""
+
+import pytest
+from pydantic import SecretStr
+
+from ledger.bootstrap import build_api
+from ledger.infrastructure.settings import Settings
+
+NO_ADMIN = Settings(
+    environment="test",
+    auth_mode="dev",
+    database_url=SecretStr("postgresql+asyncpg://sb_app:x@unreachable.invalid/ledger"),
+)
+
+
+def test_the_api_refuses_to_start_without_admin_credentials_outside_prod() -> None:
+    with pytest.raises(ValueError, match="required to mount the admin"):
+        build_api(NO_ADMIN)
+
+
+def test_the_api_refuses_a_short_admin_secret() -> None:
+    settings = NO_ADMIN.model_copy(
+        update={
+            "admin_username": "admin",
+            "admin_password": SecretStr("pw"),
+            "admin_secret_key": SecretStr("k" * 31),
+        }
+    )
+    with pytest.raises(ValueError, match="at least 32"):
+        build_api(settings)

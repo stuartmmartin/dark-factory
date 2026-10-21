@@ -1,0 +1,36 @@
+{% from "macros.jinja" import sorted_imports -%}
+"""`{{ name }}.migrate` refuses to run without its privileged URLs,
+before any I/O (M4)."""
+
+import pytest
+from pydantic import SecretStr
+
+{% call sorted_imports() %}
+from {{ name }}.infrastructure.settings import Settings
+from {{ name }}.migrate import MigrationSettingsError, migrate
+{% endcall %}
+
+MIGRATOR_ENV = "{{ NAME }}_MIGRATOR_URL"
+ADMIN_DATABASE_ENV = "{{ NAME }}_ADMIN_DATABASE_URL"
+
+APP_ONLY = Settings(
+    environment="test",
+    auth_mode="dev",
+    database_url=SecretStr("postgresql+asyncpg://sb_app:x@unreachable.invalid/app"),
+)  # no admin credentials: only the API process receives them
+
+
+@pytest.mark.parametrize(
+    ("present", "missing_env"),
+    [
+        ({"admin_database_url": SecretStr("postgresql+asyncpg://a:x@h/p")}, MIGRATOR_ENV),
+        ({"migrator_url": SecretStr("postgresql+asyncpg://m:x@h/l")}, ADMIN_DATABASE_ENV),
+        ({}, f"{MIGRATOR_ENV}, {ADMIN_DATABASE_ENV}"),
+    ],
+    ids=["no-migrator-url", "no-admin-url", "neither"],
+)
+def test_migrate_names_the_missing_settings(
+    present: dict[str, SecretStr], missing_env: str
+) -> None:
+    with pytest.raises(MigrationSettingsError, match=f"^{missing_env} must be set"):
+        migrate(APP_ONLY.model_copy(update=present))

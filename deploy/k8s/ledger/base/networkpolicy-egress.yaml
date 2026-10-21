@@ -1,0 +1,31 @@
+# Ledger allow-lists on top of the namespace's default-deny.
+# Egress destinations are environment-specific: every `to:` below selects only namespaces
+# labelled `dark-factory.io/dependency: ledger`, which nothing has by default (fail closed). Each
+# overlay patches `ledger-egress` with its real selectors or CIDRs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ledger-egress
+  labels:
+    app.kubernetes.io/name: ledger
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ledger
+  policyTypes: [Egress]
+  egress:
+    - to: # Postgres
+        - namespaceSelector:
+            matchLabels: {dark-factory.io/dependency: ledger}
+      ports:
+        - {protocol: TCP, port: 5432}
+    - to: # Kafka
+        - namespaceSelector:
+            matchLabels: {dark-factory.io/dependency: ledger}
+      ports:
+        - {protocol: TCP, port: 9092}
+    - to: # Temporal frontend
+        - namespaceSelector:
+            matchLabels: {dark-factory.io/dependency: ledger}
+      ports:
+        - {protocol: TCP, port: 7233}
